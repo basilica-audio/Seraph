@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/icon.png" alt="Seraph icon" width="120"/></p>
+
 # Seraph — user manual
 
 *Voices from above — a choir and vocal processor for operatic symphonic metal.*
