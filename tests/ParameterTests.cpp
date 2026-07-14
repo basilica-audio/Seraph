@@ -58,7 +58,9 @@ TEST_CASE ("Processor instantiates with the expected parameters", "[processor][p
         static constexpr const char* allIds[] = {
             ParamIDs::deEss,
             ParamIDs::deEssFreq,
+            ParamIDs::deEssListen,
             ParamIDs::air,
+            ParamIDs::comp,
             ParamIDs::doubleAmount,
             ParamIDs::doubleDetune,
             ParamIDs::doubleWidth,
@@ -70,9 +72,22 @@ TEST_CASE ("Processor instantiates with the expected parameters", "[processor][p
             CHECK (apvts.getParameter (id) != nullptr);
     }
 
-    SECTION ("total parameter count matches the v0.1 layout")
+    SECTION ("total parameter count matches the v0.1.0 layout")
     {
-        CHECK (apvts.processor.getParameters().size() == 8);
+        CHECK (apvts.processor.getParameters().size() == 10);
+    }
+
+    SECTION ("DeEssListen: sibilance-listen toggle defaults off")
+    {
+        auto* param = dynamic_cast<juce::AudioParameterBool*> (apvts.getParameter (ParamIDs::deEssListen));
+        REQUIRE (param != nullptr);
+        CHECK (param->get() == false);
+    }
+
+    SECTION ("Comp: gentle compressor amount defaults and range")
+    {
+        checkFloatDefault (apvts, ParamIDs::comp, 0.0f);
+        checkFloatRange (apvts, ParamIDs::comp, 0.0f, 100.0f);
     }
 
     SECTION ("DeEss: sibilance reduction amount defaults and range")
