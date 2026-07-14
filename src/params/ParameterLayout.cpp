@@ -45,6 +45,14 @@ namespace srph
             juce::AudioParameterFloatAttributes().withLabel ("Hz")));
 
         //======================================================================
+        // DeEssListen: sibilance-listen ("solo") mode, off by default. A
+        // bit-exact no-op on the rest of the chain when off.
+        layout.add (std::make_unique<juce::AudioParameterBool> (
+            juce::ParameterID { ParamIDs::deEssListen, 1 },
+            "De-Ess Listen",
+            false));
+
+        //======================================================================
         // Air: fixed-frequency high-shelf gain, -12 to +12 dB, default +3 dB.
         layout.add (std::make_unique<juce::AudioParameterFloat> (
             juce::ParameterID { ParamIDs::air, 1 },
@@ -52,6 +60,17 @@ namespace srph
             juce::NormalisableRange<float> (-12.0f, 12.0f, 0.01f),
             3.0f,
             juce::AudioParameterFloatAttributes().withLabel ("dB")));
+
+        //======================================================================
+        // Comp: gentle broadband downward-compressor amount, 0-100%, default
+        // 0% (bit-exact bypass) - an optional glue stage, not applied by
+        // default the way DeEss/Air are.
+        layout.add (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID { ParamIDs::comp, 1 },
+            "Comp",
+            juce::NormalisableRange<float> (0.0f, 100.0f, 0.1f),
+            0.0f,
+            juce::AudioParameterFloatAttributes().withLabel ("%")));
 
         //======================================================================
         // Double: doubler send amount, 0-100%, default 25%.

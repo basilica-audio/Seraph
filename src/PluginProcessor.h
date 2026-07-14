@@ -59,7 +59,9 @@ private:
     // them (no allocation/locks on the audio thread).
     std::atomic<float>* deEssAmount = nullptr;
     std::atomic<float>* deEssFreqHz = nullptr;
+    std::atomic<float>* deEssListen = nullptr;
     std::atomic<float>* airDb = nullptr;
+    std::atomic<float>* compAmount = nullptr;
     std::atomic<float>* doubleAmount = nullptr;
     std::atomic<float>* doubleDetuneCents = nullptr;
     std::atomic<float>* doubleWidth = nullptr;

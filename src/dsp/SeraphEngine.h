@@ -4,6 +4,7 @@
 
 #include "DeEsser.h"
 #include "Doubler.h"
+#include "GentleCompressor.h"
 
 // The complete Seraph signal path, independent of juce::AudioProcessor so it
 // can be exercised directly by unit tests without instantiating a full
@@ -13,7 +14,7 @@
 //
 // Signal flow (see docs/architecture.md for the full diagram):
 //
-//   input -> DeEsser -> Air high-shelf -> Doubler -> Output trim -> Mix -> output
+//   input -> DeEsser -> Air high-shelf -> GentleCompressor -> Doubler -> Output trim -> Mix -> output
 //
 // Unlike a distortion/oversampled processor, nothing in this chain adds
 // reported host latency: the de-esser is a same-sample minimum-phase
@@ -45,7 +46,9 @@ public:
     // audio thread - no allocation/locks.
     void setDeEssAmountProportion (float newAmount01);
     void setDeEssFrequencyHz (float newFrequencyHz);
+    void setDeEssListenEnabled (bool shouldListen);
     void setAirDb (float newAirDb);
+    void setCompAmountProportion (float newAmount01);
     void setDoubleAmountProportion (float newAmount01);
     void setDoubleDetuneCents (float newDetuneCents);
     void setDoubleWidthProportion (float newWidth01);
@@ -65,6 +68,7 @@ private:
 
     DeEsser deEsser;
     juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>, juce::dsp::IIR::Coefficients<float>> airShelf;
+    GentleCompressor compressor;
     Doubler doubler;
     juce::dsp::Gain<float> outputGain;
 

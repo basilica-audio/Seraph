@@ -4,10 +4,11 @@
 
 class SeraphAudioProcessor;
 
-// A simple, functional v0.1 editor: one rotary slider per parameter, bound
-// to the APVTS via SliderAttachment, laid out in two rows of four. A custom
-// vector-drawn GUI is a later milestone; this is deliberately plain but
-// fully wired and usable.
+// A simple, functional v0.1 editor: one rotary slider per float parameter
+// plus a toggle button for the boolean De-Ess Listen parameter, bound to the
+// APVTS via SliderAttachment/ButtonAttachment, laid out in two rows of five.
+// A custom vector-drawn GUI is a later milestone; this is deliberately plain
+// but fully wired and usable.
 class SeraphAudioProcessorEditor final : public juce::AudioProcessorEditor
 {
 public:
@@ -18,8 +19,9 @@ public:
 
 private:
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
+    using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
 
-    // One knob + label per parameter, in signal-flow order.
+    // One knob + label per float parameter, in signal-flow order.
     struct Knob
     {
         juce::Slider slider;
@@ -34,11 +36,15 @@ private:
     Knob deEssKnob;
     Knob deEssFreqKnob;
     Knob airKnob;
+    Knob compKnob;
     Knob doubleKnob;
     Knob doubleDetuneKnob;
     Knob doubleWidthKnob;
     Knob mixKnob;
     Knob outputKnob;
+
+    juce::ToggleButton deEssListenButton;
+    std::unique_ptr<ButtonAttachment> deEssListenAttachment;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SeraphAudioProcessorEditor)
 };
