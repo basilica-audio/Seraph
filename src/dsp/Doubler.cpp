@@ -3,17 +3,12 @@
 namespace
 {
     constexpr float minDelaySamples = 0.0f;
-    // Generous headroom above base delay (23 ms) + worst-case modulation
-    // depth (~20 ms at maxDetuneCents and the slower LFO rate) so
-    // setDelay()/popSample() never has to clamp against the delay line's own
-    // capacity in normal operation; the runtime clamp below is purely a
+    // Generous headroom above the largest base delay (29 ms) + worst-case
+    // modulation depth (~20 ms at maxDetuneCents and the slowest LFO rate)
+    // so setDelay()/popSample() never has to clamp against the delay line's
+    // own capacity in normal operation; the runtime clamp below is purely a
     // defensive backstop.
     constexpr float maxDelayLineMs = 150.0f;
-
-    float lerp (float a, float b, float t) noexcept
-    {
-        return a + (b - a) * t;
-    }
 }
 
 void Doubler::prepare (const juce::dsp::ProcessSpec& spec)
@@ -25,10 +20,11 @@ void Doubler::prepare (const juce::dsp::ProcessSpec& spec)
     juce::dsp::ProcessSpec monoSpec = spec;
     monoSpec.numChannels = 1;
 
-    delayLineA.prepare (monoSpec);
-    delayLineA.setMaximumDelayInSamples (maxDelaySamples);
-    delayLineB.prepare (monoSpec);
-    delayLineB.setMaximumDelayInSamples (maxDelaySamples);
+    for (auto& delayLine : delayLines)
+    {
+        delayLine.prepare (monoSpec);
+        delayLine.setMaximumDelayInSamples (maxDelaySamples);
+    }
 
     amountSmoothed.reset (sampleRate, smoothingTimeSeconds);
     amountSmoothed.setCurrentAndTargetValue (lastAmount01);
@@ -42,10 +38,11 @@ void Doubler::prepare (const juce::dsp::ProcessSpec& spec)
 
 void Doubler::reset()
 {
-    delayLineA.reset();
-    delayLineB.reset();
-    phaseA = 0.0;
-    phaseB = juce::MathConstants<double>::pi;
+    for (auto& delayLine : delayLines)
+        delayLine.reset();
+
+    for (size_t voice = 0; voice < static_cast<size_t> (numVoices); ++voice)
+        phases[voice] = voiceConfigs[voice].startPhase;
 }
 
 void Doubler::setAmountProportion (float newAmount01)
@@ -88,24 +85,39 @@ void Doubler::process (juce::dsp::AudioBlock<float>& block) noexcept
     // ratio deviation gives the depth used below.
     const auto maxPitchRatioDeviation = std::pow (2.0f, detuneCents / 1200.0f) - 1.0f;
 
-    const auto depthSecA = maxPitchRatioDeviation / (juce::MathConstants<float>::twoPi * lfoRateHzA);
-    const auto depthSecB = maxPitchRatioDeviation / (juce::MathConstants<float>::twoPi * lfoRateHzB);
+    // Gain compensation so that decorrelated voices summed together don't
+    // build up loudness as numVoices grows: at width == 0 (all voices
+    // centered) and numVoices == 2 this reduces to the original v0.1
+    // 0.5*(voiceA+voiceB) behaviour exactly; scaling by 2/numVoices keeps
+    // the same overall level as voice count changes.
+    constexpr auto voiceGainCompensation = 2.0f / static_cast<float> (numVoices);
 
-    const auto depthSamplesA = depthSecA * static_cast<float> (sampleRate);
-    const auto depthSamplesB = depthSecB * static_cast<float> (sampleRate);
+    const auto maxDelaySamples = static_cast<float> (juce::jmax (1, delayLines[0].getMaximumDelayInSamples()));
 
-    const auto baseDelaySamplesA = baseDelayMsA * 0.001f * static_cast<float> (sampleRate);
-    const auto baseDelaySamplesB = baseDelayMsB * 0.001f * static_cast<float> (sampleRate);
+    struct VoiceRuntime
+    {
+        float depthSamples;
+        float baseDelaySamples;
+        double phaseIncrement;
+        float leftGain;
+        float rightGain;
+    };
 
-    const auto maxDelaySamples = static_cast<float> (juce::jmax (1, delayLineA.getMaximumDelayInSamples()));
+    std::array<VoiceRuntime, numVoices> runtime {};
 
-    const auto phaseIncrementA = juce::MathConstants<double>::twoPi * static_cast<double> (lfoRateHzA) / sampleRate;
-    const auto phaseIncrementB = juce::MathConstants<double>::twoPi * static_cast<double> (lfoRateHzB) / sampleRate;
+    for (size_t voice = 0; voice < static_cast<size_t> (numVoices); ++voice)
+    {
+        const auto& config = voiceConfigs[voice];
 
-    const auto leftGainA = lerp (0.5f, 1.0f, width01);
-    const auto rightGainA = lerp (0.5f, 0.0f, width01);
-    const auto leftGainB = lerp (0.5f, 0.0f, width01);
-    const auto rightGainB = lerp (0.5f, 1.0f, width01);
+        const auto depthSec = maxPitchRatioDeviation / (juce::MathConstants<float>::twoPi * config.lfoRateHz);
+        runtime[voice].depthSamples = depthSec * static_cast<float> (sampleRate);
+        runtime[voice].baseDelaySamples = config.baseDelayMs * 0.001f * static_cast<float> (sampleRate);
+        runtime[voice].phaseIncrement = juce::MathConstants<double>::twoPi * static_cast<double> (config.lfoRateHz) / sampleRate;
+
+        const auto pan = config.panSpread * width01;
+        runtime[voice].leftGain = 0.5f * (1.0f - pan);
+        runtime[voice].rightGain = 0.5f * (1.0f + pan);
+    }
 
     auto* left = block.getChannelPointer (0);
     auto* right = numChannels > 1 ? block.getChannelPointer (1) : nullptr;
@@ -114,36 +126,47 @@ void Doubler::process (juce::dsp::AudioBlock<float>& block) noexcept
     {
         const auto monoSource = right != nullptr ? 0.5f * (left[sample] + right[sample]) : left[sample];
 
-        const auto delaySamplesA = juce::jlimit (
-            minDelaySamples, maxDelaySamples, baseDelaySamplesA + depthSamplesA * static_cast<float> (std::sin (phaseA)));
-        const auto delaySamplesB = juce::jlimit (
-            minDelaySamples, maxDelaySamples, baseDelaySamplesB + depthSamplesB * static_cast<float> (std::sin (phaseB)));
+        float leftSum = 0.0f;
+        float rightSum = 0.0f;
+        float monoSum = 0.0f;
 
-        delayLineA.pushSample (0, monoSource);
-        delayLineB.pushSample (0, monoSource);
+        for (size_t voice = 0; voice < static_cast<size_t> (numVoices); ++voice)
+        {
+            auto& delayLine = delayLines[voice];
+            auto& rt = runtime[voice];
 
-        const auto voiceA = delayLineA.popSample (0, delaySamplesA);
-        const auto voiceB = delayLineB.popSample (0, delaySamplesB);
+            const auto delaySamples = juce::jlimit (
+                minDelaySamples, maxDelaySamples, rt.baseDelaySamples + rt.depthSamples * static_cast<float> (std::sin (phases[voice])));
 
-        phaseA += phaseIncrementA;
-        if (phaseA >= juce::MathConstants<double>::twoPi)
-            phaseA -= juce::MathConstants<double>::twoPi;
+            delayLine.pushSample (0, monoSource);
+            const auto voiceOutput = delayLine.popSample (0, delaySamples);
 
-        phaseB += phaseIncrementB;
-        if (phaseB >= juce::MathConstants<double>::twoPi)
-            phaseB -= juce::MathConstants<double>::twoPi;
+            phases[voice] += rt.phaseIncrement;
+            if (phases[voice] >= juce::MathConstants<double>::twoPi)
+                phases[voice] -= juce::MathConstants<double>::twoPi;
+
+            if (bypassed)
+                continue;
+
+            leftSum += voiceOutput * rt.leftGain;
+            rightSum += voiceOutput * rt.rightGain;
+            monoSum += voiceOutput;
+        }
 
         if (bypassed)
             continue;
 
         if (right != nullptr)
         {
-            left[sample] += amount01 * (voiceA * leftGainA + voiceB * leftGainB);
-            right[sample] += amount01 * (voiceA * rightGainA + voiceB * rightGainB);
+            left[sample] += amount01 * voiceGainCompensation * leftSum;
+            right[sample] += amount01 * voiceGainCompensation * rightSum;
         }
         else
         {
-            left[sample] += amount01 * 0.5f * (voiceA + voiceB);
+            // Mono buffers ignore width entirely (documented behaviour):
+            // every voice is summed at its centered (0.5) gain regardless
+            // of pan spread, matching the v0.1 unpanned mono path.
+            left[sample] += amount01 * voiceGainCompensation * 0.5f * monoSum;
         }
     }
 }

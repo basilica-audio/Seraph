@@ -12,7 +12,9 @@ SeraphAudioProcessor::SeraphAudioProcessor()
 {
     deEssAmount = apvts.getRawParameterValue (ParamIDs::deEss);
     deEssFreqHz = apvts.getRawParameterValue (ParamIDs::deEssFreq);
+    deEssListen = apvts.getRawParameterValue (ParamIDs::deEssListen);
     airDb = apvts.getRawParameterValue (ParamIDs::air);
+    compAmount = apvts.getRawParameterValue (ParamIDs::comp);
     doubleAmount = apvts.getRawParameterValue (ParamIDs::doubleAmount);
     doubleDetuneCents = apvts.getRawParameterValue (ParamIDs::doubleDetune);
     doubleWidth = apvts.getRawParameterValue (ParamIDs::doubleWidth);
@@ -21,7 +23,9 @@ SeraphAudioProcessor::SeraphAudioProcessor()
 
     jassert (deEssAmount != nullptr);
     jassert (deEssFreqHz != nullptr);
+    jassert (deEssListen != nullptr);
     jassert (airDb != nullptr);
+    jassert (compAmount != nullptr);
     jassert (doubleAmount != nullptr);
     jassert (doubleDetuneCents != nullptr);
     jassert (doubleWidth != nullptr);
@@ -100,7 +104,9 @@ void SeraphAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock
     // values rather than the engine's built-in defaults.
     engine.setDeEssAmountProportion (deEssAmount->load (std::memory_order_relaxed) * 0.01f);
     engine.setDeEssFrequencyHz (deEssFreqHz->load (std::memory_order_relaxed));
+    engine.setDeEssListenEnabled (deEssListen->load (std::memory_order_relaxed) >= 0.5f);
     engine.setAirDb (airDb->load (std::memory_order_relaxed));
+    engine.setCompAmountProportion (compAmount->load (std::memory_order_relaxed) * 0.01f);
     engine.setDoubleAmountProportion (doubleAmount->load (std::memory_order_relaxed) * 0.01f);
     engine.setDoubleDetuneCents (doubleDetuneCents->load (std::memory_order_relaxed));
     engine.setDoubleWidthProportion (doubleWidth->load (std::memory_order_relaxed) * 0.01f);
@@ -155,7 +161,9 @@ void SeraphAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce:
 
     engine.setDeEssAmountProportion (deEssAmount->load (std::memory_order_relaxed) * 0.01f);
     engine.setDeEssFrequencyHz (deEssFreqHz->load (std::memory_order_relaxed));
+    engine.setDeEssListenEnabled (deEssListen->load (std::memory_order_relaxed) >= 0.5f);
     engine.setAirDb (airDb->load (std::memory_order_relaxed));
+    engine.setCompAmountProportion (compAmount->load (std::memory_order_relaxed) * 0.01f);
     engine.setDoubleAmountProportion (doubleAmount->load (std::memory_order_relaxed) * 0.01f);
     engine.setDoubleDetuneCents (doubleDetuneCents->load (std::memory_order_relaxed));
     engine.setDoubleWidthProportion (doubleWidth->load (std::memory_order_relaxed) * 0.01f);

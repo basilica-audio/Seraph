@@ -10,26 +10,48 @@
 <!-- ==BEGIN BODY== (plugin engineer: replace this block with What it is / Features / Signal flow / Roadmap) -->
 ## What it is
 
-Seraph is a choir and vocal processor built for operatic symphonic-metal vocals: it tames sibilance, adds airy openness above the vocal's natural top end, and thickens a lead or choir line with a click-free stereo doubler - all in one channel-strip-style plugin. AU / VST3 / Standalone.
+Seraph is a choir and vocal processor built for operatic symphonic-metal vocals: it tames sibilance, adds airy openness above the vocal's natural top end, glues dynamics together with a gentle broadband compressor, and thickens a lead or choir line with a click-free four-voice doubler - all in one channel-strip-style plugin. AU / VST3 / Standalone.
+
+See [`docs/manual.md`](docs/manual.md) for the full user manual (signal-flow explanation, complete parameter reference, and mixing tips).
 
 ## Features
 
-- **De-Ess** - a single-band, zero-latency dynamic EQ that detects sibilance energy around a tunable center frequency (`DeEssFreq`, ~5-9 kHz) and reduces it dynamically, without a lookahead delay.
+- **De-Ess** - a single-band, zero-latency dynamic EQ that detects sibilance energy around a tunable center frequency (`DeEssFreq`, ~5-9 kHz) and reduces it dynamically, without a lookahead delay. A **Listen** mode solos the detected band for tuning `DeEssFreq` by ear.
 - **Air** - a fixed-frequency (12 kHz) high-shelf for adding (or removing) openness above the vocal's presence range.
-- **Doubler** - two short, independently modulated-delay voices, slightly detuned (`DoubleDetune`, in cents) and panned left/right (`DoubleWidth`), blended in (`Double`) on top of the centered dry signal - a classic vocal-doubling trick, implemented click-free (continuous delay modulation, never a discrete pitch-shift reset).
+- **Gentle Compressor** - a single-knob, zero-latency broadband "glue" compressor (`Comp`, 0-100%) that scales threshold and ratio together up to a deliberately gentle 3:1 maximum, sitting after Air and before the Doubler so all doubled voices track a consistent level.
+- **Doubler** - four short, independently modulated-delay voices at fixed per-voice pan positions (a small-choir spread, not a single symmetric L/R pair), slightly detuned (`DoubleDetune`, in cents) and spread across the stereo field (`DoubleWidth`), blended in (`Double`) on top of the centered dry signal - a classic vocal-doubling trick, implemented click-free (continuous delay modulation, never a discrete pitch-shift reset).
 - **Mix** / **Output** - overall dry/wet blend and output trim.
 
 ## Signal flow
 
 ```
-input -> De-Ess (sibilance dynamic EQ) -> Air (high-shelf) -> Doubler (2 detuned voices, panned L/R) -> Output trim -> Mix -> output
+input -> De-Ess (sibilance dynamic EQ, + Listen mode) -> Air (high-shelf)
+       -> Gentle Compressor (broadband glue) -> Doubler (4 voices, per-voice pan)
+       -> Output trim -> Mix -> output
 ```
 
-See [`docs/architecture.md`](docs/architecture.md) for the full diagram, the de-esser/doubler DSP design, and the real-time-safety notes. Seraph reports 0 samples of latency: nothing in the chain needs host-side plugin delay compensation.
+See [`docs/architecture.md`](docs/architecture.md) for the full diagram, the de-esser/compressor/doubler DSP design, and the real-time-safety notes. Seraph reports 0 samples of latency: nothing in the chain needs host-side plugin delay compensation.
+
+## Parameters
+
+| Parameter | Range | Default | Unit |
+|---|---|---|---|
+| De-Ess | 0-100 | 30 | % |
+| De-Ess Freq | 3,000-12,000 | 7,000 | Hz |
+| De-Ess Listen | off/on | off | - |
+| Air | -12 to +12 | +3 | dB |
+| Comp | 0-100 | 0 | % |
+| Double | 0-100 | 25 | % |
+| Double Detune | 0-50 | 15 | cents |
+| Double Width | 0-100 | 100 | % |
+| Mix | 0-100 | 100 | % |
+| Output | -24 to +24 | 0 | dB |
+
+Full descriptions of what each parameter does musically are in [`docs/manual.md`](docs/manual.md).
 
 ## Roadmap
 
-Tracked as GitHub milestones and issues (M1 DSP & tests - done for v0.1 - · M2 presets/state · M3 custom GUI & a11y · M4 release/signing/v1.0.0). Read them with `gh issue list` / `gh api repos/metal-up-your-ass/seraph/milestones`.
+Tracked as GitHub milestones and issues (M1 DSP & tests - done for v0.1.0 - · M2 presets/state · M3 custom GUI & a11y · M4 release/signing/v1.0.0). Read them with `gh issue list` / `gh api repos/metal-up-your-ass/seraph/milestones`.
 <!-- ==END BODY== -->
 
 ## Installation

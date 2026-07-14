@@ -45,6 +45,7 @@ TEST_CASE ("Full-scale sibilant-like input at maximum settings produces no NaN/I
 
     setParam (processor, ParamIDs::deEss, 100.0f);
     setParam (processor, ParamIDs::deEssFreq, 9000.0f);
+    setParam (processor, ParamIDs::comp, 100.0f);
     setParam (processor, ParamIDs::air, 12.0f);
     setParam (processor, ParamIDs::doubleAmount, 100.0f);
     setParam (processor, ParamIDs::doubleDetune, 50.0f);
@@ -148,6 +149,7 @@ TEST_CASE ("Extreme parameter values at both range edges produce no NaN/Inf", "[
     {
         setParam (processor, ParamIDs::deEss, useMinimum ? 0.0f : 100.0f);
         setParam (processor, ParamIDs::deEssFreq, useMinimum ? 3000.0f : 12000.0f);
+        setParam (processor, ParamIDs::comp, useMinimum ? 0.0f : 100.0f);
         setParam (processor, ParamIDs::air, useMinimum ? -12.0f : 12.0f);
         setParam (processor, ParamIDs::doubleAmount, useMinimum ? 0.0f : 100.0f);
         setParam (processor, ParamIDs::doubleDetune, useMinimum ? 0.0f : 50.0f);
@@ -155,10 +157,17 @@ TEST_CASE ("Extreme parameter values at both range edges produce no NaN/Inf", "[
         setParam (processor, ParamIDs::output, useMinimum ? -24.0f : 24.0f);
         setParam (processor, ParamIDs::mix, useMinimum ? 0.0f : 100.0f);
 
-        TestHelpers::fillWithSine (buffer, 44100.0, 440.0, 0.8f);
+        for (const bool listenEnabled : { false, true })
+        {
+            auto* listenParam = processor.apvts.getParameter (ParamIDs::deEssListen);
+            REQUIRE (listenParam != nullptr);
+            listenParam->setValueNotifyingHost (listenEnabled ? 1.0f : 0.0f);
 
-        CHECK_NOTHROW (processor.processBlock (buffer, midi));
-        CHECK (TestHelpers::allSamplesFinite (buffer));
+            TestHelpers::fillWithSine (buffer, 44100.0, 440.0, 0.8f);
+
+            CHECK_NOTHROW (processor.processBlock (buffer, midi));
+            CHECK (TestHelpers::allSamplesFinite (buffer));
+        }
     }
 }
 
@@ -172,11 +181,16 @@ TEST_CASE ("Rapid parameter automation across many blocks produces no NaN/Inf", 
 
     juce::MidiBuffer midi;
 
+    auto* listenParam = processor.apvts.getParameter (ParamIDs::deEssListen);
+    REQUIRE (listenParam != nullptr);
+
     for (int block = 0; block < 100; ++block)
     {
         setParam (processor, ParamIDs::deEss, unit (rng) * 100.0f);
         setParam (processor, ParamIDs::deEssFreq, 3000.0f + unit (rng) * 9000.0f);
+        listenParam->setValueNotifyingHost (unit (rng) > 0.5f ? 1.0f : 0.0f);
         setParam (processor, ParamIDs::air, -12.0f + unit (rng) * 24.0f);
+        setParam (processor, ParamIDs::comp, unit (rng) * 100.0f);
         setParam (processor, ParamIDs::doubleAmount, unit (rng) * 100.0f);
         setParam (processor, ParamIDs::doubleDetune, unit (rng) * 50.0f);
         setParam (processor, ParamIDs::doubleWidth, unit (rng) * 100.0f);

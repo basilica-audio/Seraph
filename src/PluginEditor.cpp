@@ -8,7 +8,7 @@ namespace
     constexpr int textBoxHeight = 20;
     constexpr int labelHeight = 20;
     constexpr int margin = 16;
-    constexpr int numColumns = 4;
+    constexpr int numColumns = 5;
     constexpr int numRows = 2;
     constexpr int editorWidth = margin * 2 + numColumns * knobSize + (numColumns - 1) * margin;
     constexpr int editorHeight = margin * 2 + numRows * (labelHeight + knobSize + textBoxHeight) + margin;
@@ -21,11 +21,16 @@ SeraphAudioProcessorEditor::SeraphAudioProcessorEditor (SeraphAudioProcessor& pr
     configureKnob (deEssKnob, ParamIDs::deEss, "De-Ess");
     configureKnob (deEssFreqKnob, ParamIDs::deEssFreq, "De-Ess Freq");
     configureKnob (airKnob, ParamIDs::air, "Air");
+    configureKnob (compKnob, ParamIDs::comp, "Comp");
     configureKnob (doubleKnob, ParamIDs::doubleAmount, "Double");
     configureKnob (doubleDetuneKnob, ParamIDs::doubleDetune, "Detune");
     configureKnob (doubleWidthKnob, ParamIDs::doubleWidth, "Width");
     configureKnob (mixKnob, ParamIDs::mix, "Mix");
     configureKnob (outputKnob, ParamIDs::output, "Output");
+
+    deEssListenButton.setButtonText ("Listen");
+    addAndMakeVisible (deEssListenButton);
+    deEssListenAttachment = std::make_unique<ButtonAttachment> (audioProcessor.apvts, ParamIDs::deEssListen, deEssListenButton);
 
     setResizable (false, false);
     setSize (editorWidth, editorHeight);
@@ -63,9 +68,14 @@ void SeraphAudioProcessorEditor::resized()
 
     const auto slotWidth = topRow.getWidth() / numColumns;
 
-    for (auto* knob : { &deEssKnob, &deEssFreqKnob, &airKnob, &doubleKnob })
+    for (auto* knob : { &deEssKnob, &deEssFreqKnob })
         knob->slider.setBounds (topRow.removeFromLeft (slotWidth).reduced (margin / 2, 0));
 
-    for (auto* knob : { &doubleDetuneKnob, &doubleWidthKnob, &mixKnob, &outputKnob })
+    deEssListenButton.setBounds (topRow.removeFromLeft (slotWidth).reduced (margin / 2, knobSize / 2 - textBoxHeight / 2));
+
+    for (auto* knob : { &airKnob, &compKnob })
+        knob->slider.setBounds (topRow.removeFromLeft (slotWidth).reduced (margin / 2, 0));
+
+    for (auto* knob : { &doubleKnob, &doubleDetuneKnob, &doubleWidthKnob, &mixKnob, &outputKnob })
         knob->slider.setBounds (bottomRow.removeFromLeft (slotWidth).reduced (margin / 2, 0));
 }

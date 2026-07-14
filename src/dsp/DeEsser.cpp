@@ -103,6 +103,15 @@ void DeEsser::process (juce::dsp::AudioBlock<float>& block) noexcept
             const auto coeff = rectified > envelope ? attackCoeff : releaseCoeff;
             envelope = static_cast<float> (coeff * envelope + (1.0 - coeff) * rectified);
 
+            // Listen mode replaces the output with the raw detected band
+            // regardless of the current DeEss amount/bypass state, so
+            // DeEssFreq can be tuned by ear before dialling in reduction.
+            if (listenEnabled)
+            {
+                data[sample] = bandpassed;
+                continue;
+            }
+
             if (bypassed)
                 continue;
 

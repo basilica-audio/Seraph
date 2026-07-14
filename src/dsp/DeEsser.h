@@ -39,6 +39,13 @@ public:
     // Center frequency of the sibilance detection/reduction band, Hz.
     void setFrequencyHz (float newFrequencyHz);
 
+    // Sibilance-listen ("solo") mode: when true, process() writes the raw
+    // detected sibilance band (the bandpassed detector signal) into `block`
+    // instead of the gain-reduced full signal, so DeEssFreq can be tuned by
+    // ear independent of the current DeEss amount. False (the default) is a
+    // bit-exact no-op on the existing gain-reduction/bypass behaviour below.
+    void setListenEnabled (bool shouldListen) noexcept { listenEnabled = shouldListen; }
+
     // Processes `block` in place. A zero-sample block is a safe no-op. No
     // allocation occurs here.
     void process (juce::dsp::AudioBlock<float>& block) noexcept;
@@ -76,6 +83,7 @@ private:
     float lastAmount01 = 0.3f;
 
     float currentGainReductionDb = 0.0f;
+    bool listenEnabled = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DeEsser)
 };

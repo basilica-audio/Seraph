@@ -12,6 +12,8 @@ void SeraphEngine::prepare (const juce::dsp::ProcessSpec& spec)
     *airShelf.state = *juce::dsp::IIR::Coefficients<float>::makeHighShelf (
         sampleRate, airFrequencyHz, airShelfQ, juce::Decibels::decibelsToGain (lastAirDb));
 
+    compressor.prepare (spec);
+
     doubler.prepare (spec);
 
     outputGain.setRampDurationSeconds (smoothingTimeSeconds);
@@ -31,6 +33,7 @@ void SeraphEngine::reset()
 {
     deEsser.reset();
     airShelf.reset();
+    compressor.reset();
     doubler.reset();
     outputGain.reset();
 }
@@ -45,10 +48,20 @@ void SeraphEngine::setDeEssFrequencyHz (float newFrequencyHz)
     deEsser.setFrequencyHz (newFrequencyHz);
 }
 
+void SeraphEngine::setDeEssListenEnabled (bool shouldListen)
+{
+    deEsser.setListenEnabled (shouldListen);
+}
+
 void SeraphEngine::setAirDb (float newAirDb)
 {
     lastAirDb = newAirDb;
     airDbSmoothed.setTargetValue (newAirDb);
+}
+
+void SeraphEngine::setCompAmountProportion (float newAmount01)
+{
+    compressor.setAmountProportion (newAmount01);
 }
 
 void SeraphEngine::setDoubleAmountProportion (float newAmount01)
@@ -104,6 +117,8 @@ void SeraphEngine::process (juce::dsp::AudioBlock<float>& block) noexcept
 
     juce::dsp::ProcessContextReplacing<float> context (block);
     airShelf.process (context);
+
+    compressor.process (block);
 
     doubler.process (block);
 

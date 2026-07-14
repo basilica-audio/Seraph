@@ -3,12 +3,13 @@
 // Central definition of all AudioProcessorValueTreeState parameter IDs for
 // Seraph. See docs/architecture.md for the corresponding signal-flow diagram.
 //
-// FROZEN AS OF THE v0.1 PARAMETER LAYOUT:
+// FROZEN AS OF THE v0.1.0 PARAMETER LAYOUT:
 // Parameter IDs below must NEVER change once shipped - saved sessions and
 // presets persist the APVTS state keyed by these string IDs, and renaming or
 // removing one would silently break every user's saved state. Ranges,
 // defaults, and skew MAY still be refined during voicing/tuning milestones;
-// only the IDs themselves are frozen.
+// only the IDs themselves are frozen. deEssListen and comp were added during
+// M1 (before the v0.1.0 tag), so they are part of this same frozen set.
 namespace ParamIDs
 {
     // De-esser amount, 0-100%. Drives the maximum gain reduction applied to
@@ -19,14 +20,28 @@ namespace ParamIDs
     // Sits within the ~5-9 kHz sibilance register.
     inline constexpr auto deEssFreq = "deEssFreq";
 
+    // Sibilance-listen ("solo") mode: when on, the de-esser stage outputs
+    // only the detected sibilance band (the bandpassed detector signal)
+    // instead of the gain-reduced full signal, so DeEssFreq can be tuned by
+    // ear. Off by default and a bit-exact no-op on the rest of the chain
+    // when off. See DeEsser::process().
+    inline constexpr auto deEssListen = "deEssListen";
+
     // "Air" high-shelf gain, dB (cut or boost) at a fixed shelf frequency in
     // the ~10-16 kHz region - adds (or removes) the sense of airy openness
     // above the de-esser band.
     inline constexpr auto air = "air";
 
-    // Doubler send amount, 0-100%: how much of the two delayed/detuned
+    // Gentle broadband downward-compressor amount, 0-100%: scales both
+    // threshold and ratio from fully transparent (0%, bit-exact bypass) to a
+    // gentle "glue" setting (100%, see GentleCompressor). No auto makeup
+    // gain is applied - use Output to compensate perceived level changes.
+    inline constexpr auto comp = "comp";
+
+    // Doubler send amount, 0-100%: how much of the four delayed/detuned
     // doubled voices is blended in on top of the centered main signal. 0% is
-    // a bit-exact bypass of the doubler.
+    // a bit-exact bypass of the doubler. See Doubler.h for the four-voice,
+    // per-voice-pan design (M1).
     inline constexpr auto doubleAmount = "double";
 
     // Doubler detune depth, in cents, applied as a small continuous
@@ -34,8 +49,9 @@ namespace ParamIDs
     // pitch shift) - the classic click-free "doubler" detune trick.
     inline constexpr auto doubleDetune = "doubleDetune";
 
-    // Doubler stereo width, 0-100%: 0% keeps both doubled voices centered
-    // (mono-compatible chorus), 100% pans them hard left/right.
+    // Doubler stereo width, 0-100%: 0% keeps all four doubled voices
+    // centered (mono-compatible chorus), 100% spreads them across the full
+    // stereo field at their fixed per-voice pan positions.
     inline constexpr auto doubleWidth = "doubleWidth";
 
     // Overall dry/wet mix. At 0% the plugin is a passthrough of the input
