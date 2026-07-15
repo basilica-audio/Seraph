@@ -2,7 +2,7 @@
 
 # Seraph
 
-*Voices from above — a choir and vocal processor for operatic symphonic metal.*
+*Voices from above — a choir and vocal processor for operatic metal vocals.*
 
 [![CI](https://github.com/basilica-audio/seraph/actions/workflows/ci.yml/badge.svg)](https://github.com/basilica-audio/seraph/actions/workflows/ci.yml)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
@@ -12,7 +12,7 @@
 <!-- ==BEGIN BODY== (plugin engineer: replace this block with What it is / Features / Signal flow / Roadmap) -->
 ## What it is
 
-Seraph is a choir and vocal processor built for operatic symphonic-metal vocals: it tames sibilance, adds airy openness above the vocal's natural top end, glues dynamics together with a gentle broadband compressor, and thickens a lead or choir line with a click-free four-voice doubler - all in one channel-strip-style plugin. AU / VST3 / Standalone.
+Seraph is a choir and vocal processor built for operatic metal vocals: it tames sibilance, adds airy openness above the vocal's natural top end, glues dynamics together with a gentle broadband compressor, and thickens a lead or choir line with a click-free four-voice doubler - all in one channel-strip-style plugin. AU / VST3 / Standalone.
 
 See [`docs/manual.md`](docs/manual.md) for the full user manual (signal-flow explanation, complete parameter reference, and mixing tips).
 
