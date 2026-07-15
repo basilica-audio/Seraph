@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Audio-thread heap allocation in `SeraphEngine`'s Air high-shelf**: `process()` recomputed the Air filter's coefficients via `Coefficients::makeHighShelf()` every block, which heap-allocates a new `Coefficients` object internally. Switched to the allocation-free `ArrayCoefficients::makeHighShelf()`, written in place into the existing filter state.
+- **Audio-thread heap allocation in `DeEsser`'s bandpass detector**: `process()` recomputed the detector's coefficients via `Coefficients::makeBandPass()` every block (even when `DeEss` amount was 0%), likewise heap-allocating internally. Switched to the allocation-free `ArrayCoefficients::makeBandPass()`, written in place into the existing detector coefficients.
+- Added a permanent audio-thread allocation regression test (`tests/AllocationTests.cpp`, `TestAlloc::AllocationGuard`) so a future `process()`-time heap allocation in any DSP stage fails CI instead of passing silently.
+
 ## [0.1.0] - 2026-07-14
 
 ### Added
