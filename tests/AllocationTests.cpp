@@ -1,0 +1,65 @@
+#include "AllocationGuard.h"
+#include "PluginProcessor.h"
+#include "params/ParameterIds.h"
+#include "TestHelpers.h"
+
+#include <catch2/catch_test_macros.hpp>
+
+// Permanent audio-thread allocation regression guard (basilica-audio/Seraph
+// issue #14): none of pluginval (--strictness-level 10), auval (-strict), or
+// the other 28 Catch2 tests do allocation-instrumented profiling, so a
+// process()-time heap allocation - such as the ones fixed in issues #12
+// (SeraphEngine's Air high-shelf coefficient recompute) and #13 (DeEsser's
+// bandpass detector coefficient recompute) - passes CI clean. This test
+// exercises the full plugin with every stage actively engaged and fails if
+// processBlock() ever touches the heap again, for these two stages or any
+// future one.
+namespace
+{
+    void setParam (SeraphAudioProcessor& processor, const char* id, float realValue)
+    {
+        auto* param = processor.apvts.getParameter (id);
+        REQUIRE (param != nullptr);
+        param->setValueNotifyingHost (param->convertTo0to1 (realValue));
+    }
+}
+
+TEST_CASE ("SeraphAudioProcessor::processBlock allocates no memory with every stage active", "[dsp][rt-safety][alloc]")
+{
+    SeraphAudioProcessor processor;
+    processor.prepareToPlay (48000.0, 512);
+
+    // Every stage engaged simultaneously, so a regression in any one of
+    // them (not just Air/DeEsser) shows up here.
+    setParam (processor, ParamIDs::deEss, 70.0f);
+    setParam (processor, ParamIDs::deEssFreq, 7500.0f);
+    setParam (processor, ParamIDs::comp, 60.0f);
+    setParam (processor, ParamIDs::air, 6.0f);
+    setParam (processor, ParamIDs::doubleAmount, 80.0f);
+    setParam (processor, ParamIDs::doubleDetune, 20.0f);
+    setParam (processor, ParamIDs::doubleWidth, 100.0f);
+    setParam (processor, ParamIDs::output, 3.0f);
+    setParam (processor, ParamIDs::mix, 100.0f);
+
+    juce::AudioBuffer<float> buffer (2, 512);
+    juce::MidiBuffer midi;
+
+    // Allocation during prepareToPlay()/parameter smoothing settle is
+    // expected and allowed - only the steady-state per-block behaviour
+    // below is guarded.
+    for (int warmup = 0; warmup < 4; ++warmup)
+    {
+        TestHelpers::fillWithSine (buffer, 48000.0, 1000.0, 0.5f, static_cast<juce::int64> (warmup) * 512);
+        processor.processBlock (buffer, midi);
+    }
+
+    TestAlloc::AllocationGuard guard;
+
+    for (int block = 0; block < 32; ++block)
+    {
+        TestHelpers::fillWithSine (buffer, 48000.0, 1000.0, 0.5f, static_cast<juce::int64> (block) * 512);
+        processor.processBlock (buffer, midi);
+    }
+
+    CHECK (guard.count() == 0);
+}
