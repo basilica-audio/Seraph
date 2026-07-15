@@ -2,11 +2,11 @@
 
 # Seraph — user manual
 
-*Voices from above — a choir and vocal processor for operatic symphonic metal.*
+*Voices from above — a choir and vocal processor for operatic metal vocals.*
 
 ## What Seraph is
 
-Seraph is a channel-strip-style vocal processor built for the lead and choir vocal parts of operatic symphonic metal (Nightwish/Epica/Dimmu-Borgir territory): a soprano lead line, a layered choral backing, or a spoken/growled interlude that needs to sit cleanly against heavy layered guitars and an orchestra without disappearing or turning harsh.
+Seraph is a channel-strip-style vocal processor built for the lead and choir vocal parts of operatic metal (big, cinematic productions): a soprano lead line, a layered choral backing, or a spoken/growled interlude that needs to sit cleanly against heavy layered guitars and an orchestra without disappearing or turning harsh.
 
 It combines four processing stages that are normally reached for separately on a vocal:
 
@@ -17,7 +17,7 @@ It combines four processing stages that are normally reached for separately on a
 
 Everything downstream of Mix/Output is a single self-contained channel strip: put Seraph on a vocal or choir bus, dial in de-essing and air to taste, add a touch of glue compression if the take is dynamically uneven, and use the doubler to widen a lead line or thicken a choir part.
 
-## Where it sits in a symphonic-metal signal chain
+## Where it sits in a heavy-music signal chain
 
 Seraph is designed to run on vocal/choir tracks or a vocal bus, typically:
 
@@ -27,7 +27,7 @@ Vocal/choir recording -> (tuning/editing, if used) -> Seraph -> reverb/delay sen
 
 Because Seraph reports **0 samples of latency**, it never needs host-side plugin-delay-compensation accounting - it is safe to insert anywhere in a vocal chain, including in parallel (e.g. a doubled/blended parallel vocal bus) without phase-alignment surprises against a dry path.
 
-A few practical placements in a symphonic-metal production:
+A few practical placements in a heavy-music production:
 
 - **Lead vocal track**: De-Ess first (mic proximity and consonants), a touch of Air to help an operatic voice cut through distorted guitars and orchestral strings, a little Comp for consistency, and a *subtle* amount of Double (10-20%) if the take needs filling out without sounding artificially doubled.
 - **Choir/backing vocal bus**: heavier Double (40-70%) with full Width for a wide, layered choir spread from a smaller number of recorded takes; De-Ess and Air set more conservatively since choir blends are usually already less sibilant/harsh per-voice than a solo lead.
