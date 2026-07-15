@@ -1,4 +1,5 @@
 #include "DeEsser.h"
+#include "RealtimeCoefficients.h"
 
 namespace
 {
@@ -76,7 +77,14 @@ void DeEsser::process (juce::dsp::AudioBlock<float>& block) noexcept
     // never touch `block`'s samples.
     const bool bypassed = amount01 <= 0.0f;
 
-    *detectorCoefficients = *juce::dsp::IIR::Coefficients<float>::makeBandPass (sampleRate, frequencyHz, detectorQ);
+    // Real-time-safe recompute: ArrayCoefficients::makeBandPass returns a
+    // stack std::array (no allocation), written in place into the already-
+    // allocated detectorCoefficients object below - unlike
+    // Coefficients<float>::makeBandPass (used once in prepare() above),
+    // which heap-allocates a brand new Coefficients object on every call.
+    // See RealtimeCoefficients.h and basilica-audio/Seraph issue #13.
+    const auto rawCoefficients = juce::dsp::IIR::ArrayCoefficients<float>::makeBandPass (sampleRate, frequencyHz, detectorQ);
+    srph::applyBiquadCoefficients (*detectorCoefficients, rawCoefficients);
 
     const auto maxReductionDb = amount01 * maxReductionRangeDb;
 

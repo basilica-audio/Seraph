@@ -1,5 +1,6 @@
 #include "AllocationGuard.h"
 #include "PluginProcessor.h"
+#include "dsp/DeEsser.h"
 #include "params/ParameterIds.h"
 #include "TestHelpers.h"
 
@@ -59,6 +60,41 @@ TEST_CASE ("SeraphAudioProcessor::processBlock allocates no memory with every st
     {
         TestHelpers::fillWithSine (buffer, 48000.0, 1000.0, 0.5f, static_cast<juce::int64> (block) * 512);
         processor.processBlock (buffer, midi);
+    }
+
+    CHECK (guard.count() == 0);
+}
+
+TEST_CASE ("DeEsser::process allocates no memory across repeated blocks", "[dsp][deesser][rt-safety][alloc]")
+{
+    // Isolated from SeraphEngine/PluginProcessor so this attributes any
+    // regression specifically to DeEsser's detector coefficient recompute
+    // (basilica-audio/Seraph issue #13), independent of any other stage.
+    DeEsser deEsser;
+
+    juce::dsp::ProcessSpec spec;
+    spec.sampleRate = 48000.0;
+    spec.maximumBlockSize = 512;
+    spec.numChannels = 2;
+    deEsser.prepare (spec);
+
+    deEsser.setAmountProportion (0.7f);
+    deEsser.setFrequencyHz (7500.0f);
+
+    juce::AudioBuffer<float> buffer (2, 512);
+    TestHelpers::fillWithSine (buffer, 48000.0, 7500.0, 0.5f);
+
+    juce::dsp::AudioBlock<float> block (buffer);
+
+    // Warm-up block outside the guard, as above.
+    deEsser.process (block);
+
+    TestAlloc::AllocationGuard guard;
+
+    for (int i = 0; i < 32; ++i)
+    {
+        TestHelpers::fillWithSine (buffer, 48000.0, 7500.0, 0.5f, static_cast<juce::int64> (i) * 512);
+        deEsser.process (block);
     }
 
     CHECK (guard.count() == 0);
