@@ -4,7 +4,7 @@
 
 *Voices from above — a choir and vocal processor for operatic symphonic metal.*
 
-[![CI](https://github.com/metal-up-your-ass/seraph/actions/workflows/ci.yml/badge.svg)](https://github.com/metal-up-your-ass/seraph/actions/workflows/ci.yml)
+[![CI](https://github.com/basilica-audio/seraph/actions/workflows/ci.yml/badge.svg)](https://github.com/basilica-audio/seraph/actions/workflows/ci.yml)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 
 > **Work in progress.** Seraph is pre-1.0 and under active development. There are no built binaries or releases yet — building from source is currently the only way to run it. Expect breaking changes until v1.0.0 ships (see [Roadmap](#roadmap)).
@@ -53,7 +53,7 @@ Full descriptions of what each parameter does musically are in [`docs/manual.md`
 
 ## Roadmap
 
-Tracked as GitHub milestones and issues (M1 DSP & tests - done for v0.1.0 - · M2 presets/state · M3 custom GUI & a11y · M4 release/signing/v1.0.0). Read them with `gh issue list` / `gh api repos/metal-up-your-ass/seraph/milestones`.
+Tracked as GitHub milestones and issues (M1 DSP & tests - done for v0.1.0 - · M2 presets/state · M3 custom GUI & a11y · M4 release/signing/v1.0.0). Read them with `gh issue list` / `gh api repos/basilica-audio/seraph/milestones`.
 <!-- ==END BODY== -->
 
 ## Installation
