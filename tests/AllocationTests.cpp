@@ -1,6 +1,7 @@
 #include "AllocationGuard.h"
 #include "PluginProcessor.h"
 #include "dsp/DeEsser.h"
+#include "dsp/SeraphEngine.h"
 #include "params/ParameterIds.h"
 #include "TestHelpers.h"
 
@@ -95,6 +96,44 @@ TEST_CASE ("DeEsser::process allocates no memory across repeated blocks", "[dsp]
     {
         TestHelpers::fillWithSine (buffer, 48000.0, 7500.0, 0.5f, static_cast<juce::int64> (i) * 512);
         deEsser.process (block);
+    }
+
+    CHECK (guard.count() == 0);
+}
+
+TEST_CASE ("SeraphEngine::process allocates no memory with Air active", "[dsp][engine][air][rt-safety][alloc]")
+{
+    // DeEss/Comp/Double left at zero so any regression here attributes
+    // specifically to the Air high-shelf coefficient recompute
+    // (basilica-audio/Seraph issue #12), not another stage.
+    SeraphEngine engine;
+    engine.setDeEssAmountProportion (0.0f);
+    engine.setCompAmountProportion (0.0f);
+    engine.setDoubleAmountProportion (0.0f);
+    engine.setAirDb (6.0f);
+    engine.setMixProportion (1.0f);
+    engine.setOutputDb (0.0f);
+
+    juce::dsp::ProcessSpec spec;
+    spec.sampleRate = 48000.0;
+    spec.maximumBlockSize = 512;
+    spec.numChannels = 2;
+    engine.prepare (spec);
+
+    juce::AudioBuffer<float> buffer (2, 512);
+    TestHelpers::fillWithSine (buffer, 48000.0, 13000.0, 0.3f);
+
+    juce::dsp::AudioBlock<float> block (buffer);
+
+    // Warm-up block outside the guard, as above.
+    engine.process (block);
+
+    TestAlloc::AllocationGuard guard;
+
+    for (int i = 0; i < 32; ++i)
+    {
+        TestHelpers::fillWithSine (buffer, 48000.0, 13000.0, 0.3f, static_cast<juce::int64> (i) * 512);
+        engine.process (block);
     }
 
     CHECK (guard.count() == 0);
