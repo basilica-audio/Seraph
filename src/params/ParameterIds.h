@@ -20,6 +20,16 @@ namespace ParamIDs
     // Sits within the ~5-9 kHz sibilance register.
     inline constexpr auto deEssFreq = "deEssFreq";
 
+    // Detection bandwidth of the sibilance band, 0-100%, default 40%. Added
+    // in v0.2.0 (deep-dive brief, docs/design-brief.md ss2.1): maps to the
+    // detector's bandpass Q, 0% (narrow, Q=3.0) to 100% (wide, Q=0.7) - the
+    // single most load-bearing control both reference de-essers in the
+    // research notes expose that v0.1.0 did not. New parameter added after
+    // v0.1.0 shipped: tolerant state import falls back to the documented
+    // default (40%) when loading a state saved before this ID existed (see
+    // tests/StateTests.cpp).
+    inline constexpr auto deEssWidth = "deEssWidth";
+
     // Sibilance-listen ("solo") mode: when on, the de-esser stage outputs
     // only the detected sibilance band (the bandpassed detector signal)
     // instead of the gain-reduced full signal, so DeEssFreq can be tuned by

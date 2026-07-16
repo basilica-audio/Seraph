@@ -36,12 +36,16 @@ A few practical placements in a heavy-music production:
 ## Signal flow
 
 ```
-input -> De-Ess (sibilance dynamic EQ, + Listen mode) -> Air (12 kHz high-shelf)
-       -> Gentle Compressor (broadband glue) -> Doubler (4 voices, per-voice pan)
+input -> De-Ess (sibilance dynamic EQ, + Width + Listen mode) -> Air (12 kHz high-shelf)
+       -> Gentle Compressor (broadband glue, auto-release) -> Doubler (4 voices, per-voice pan)
        -> Output trim -> Mix -> output
 ```
 
-See [`architecture.md`](architecture.md) for the full technical signal-flow diagram and DSP design notes.
+See [`architecture.md`](architecture.md) for the full technical signal-flow diagram and DSP design notes, and [`design-brief.md`](design-brief.md) for the v0.2.0 research-derived voicing pass behind the ranges/defaults below.
+
+## Presets
+
+Seraph ships with a preset bar docked at the top of the plugin window: browse Factory and User presets from the name menu, step through them with the `<`/`>` arrows, and use Save/Save As.../Delete/Import.../Export... to manage your own. Nine factory presets cover lead, choir, spoken-interlude, and single-stage utility use cases - see [`presets.md`](presets.md) for the full list and each preset's intent. "Set current as default" (in the preset name menu) sets what loads the next time you open a fresh instance of Seraph. User presets are stored per-user (`~/Library/Audio/Presets/Yves Vogl/Seraph/` on macOS) and can be exported/imported as single files or shared as a bank.
 
 ## Parameter reference
 
@@ -49,11 +53,12 @@ See [`architecture.md`](architecture.md) for the full technical signal-flow diag
 |---|---|---|---|---|
 | **De-Ess** | 0-100 | 30 | % | Sibilance gain-reduction amount. Scales the maximum reduction applied to the detected band (up to 24 dB at 100%). 0% is an exact bypass of the de-esser. Start low (20-40%) and raise only as far as needed - overdoing de-essing makes "s" sounds sound lisped or muffled. |
 | **De-Ess Freq** | 3,000-12,000 | 7,000 | Hz | Center frequency of the sibilance detection/reduction band. Female/soprano vocals often sibilate higher (7-9 kHz); lower male vocals or heavily proximity-mic'd takes may need 5-6 kHz. Use **De-Ess Listen** to find the right frequency by ear. |
-| **De-Ess Listen** | off/on | off | - | Solos the detected sibilance band instead of the processed vocal, so you can sweep De-Ess Freq and hear exactly which frequency band is being targeted before dialling in reduction. Switch back off before mixing - Listen mode is a tuning aid, not a mix setting. |
-| **Air** | -12 to +12 | +3 | dB | Fixed 12 kHz high-shelf. Boost for openness/shimmer above a vocal's natural top end (typical for a lead that needs to cut through a dense mix); cut if a bright mic/preamp or aggressive de-essing has left the vocal sounding thin or harsh. |
-| **Comp** | 0-100 | 0 | % | Gentle broadband downward-compressor amount. Scales both threshold (down to -20 dBFS) and ratio (up to 3:1) together - a "glue" setting, not a squashing limiter. 0% is an exact bypass. No automatic makeup gain is applied; use **Output** to compensate if a higher Comp setting makes the vocal feel quieter. |
+| **De-Ess Width** | 0-100 | 40 | % | Detection bandwidth of the sibilance band. Lower values narrow the detector onto just the "ess" energy (more surgical, less likely to catch other high-frequency content); higher values widen it to catch "sh"/breathy/"woosh"-type sibilance too. If De-Ess is reacting to the wrong sound, try adjusting Width before reaching for De-Ess Freq. |
+| **De-Ess Listen** | off/on | off | - | Solos the detected sibilance band instead of the processed vocal, so you can sweep De-Ess Freq/Width and hear exactly which frequency content is being targeted before dialling in reduction. Switch back off before mixing - Listen mode is a tuning aid, not a mix setting. |
+| **Air** | -6 to +9 | +2 | dB | Fixed 12 kHz high-shelf with a wide, gentle transition (starts rising well before the corner). Boost for openness/shimmer above a vocal's natural top end (typical for a lead that needs to cut through a dense mix); cut if a bright mic/preamp or aggressive de-essing has left the vocal sounding thin or harsh. |
+| **Comp** | 0-100 | 0 | % | Gentle broadband downward-compressor amount with a program-dependent ("auto") release: recovers quickly after an isolated loud moment, glues more audibly during sustained loud passages. Scales both threshold (down to -20 dBFS) and ratio (up to 3:1) together - a "glue" setting, not a squashing limiter. 0% is an exact bypass. No automatic makeup gain is applied; use **Output** to compensate if a higher Comp setting makes the vocal feel quieter. |
 | **Double** | 0-100 | 25 | % | Doubler send amount: how much of the four doubled voices blends in on top of the centered dry signal. 0% is an exact bypass of the doubler. Subtle amounts (10-25%) thicken a lead without an obvious "chorus" effect; higher amounts (40%+) build a fuller small-choir spread, best suited to backing/choir parts rather than an exposed lead line. |
-| **Double Detune** | 0-50 | 15 | cents | Depth of the doubler's continuous pitch wobble (a smooth modulated-delay detune, not a discrete pitch shift - always click-free). Lower values (5-10 cents) sound like a tight, subtle double; higher values (30-50 cents) sound looser and more chorus-like. |
+| **Double Detune** | 0-50 | 10 | cents | Depth of the doubler's continuous pitch wobble (a smooth modulated-delay detune, not a discrete pitch shift - always click-free). The knob spends more of its travel in the low-cents range: values around 5-12 cents sound like a tight, subtle double; the upper end (30-50 cents) sounds looser and more chorus-like. |
 | **Double Width** | 0-100 | 100 | % | Stereo spread of the doubler's four voices. 0% keeps all four voices centered (mono-compatible, useful if the vocal needs to stay centered in a mono-fold-down-sensitive mix); 100% spreads them across the full stereo field for a wide choir effect. |
 | **Mix** | 0-100 | 100 | % | Overall dry/wet blend. Defaults to 100% (fully processed) since Seraph is meant to be run as a full channel strip, not blended - lower it only for parallel-processing setups (e.g. blending in a de-essed/doubled signal under an otherwise-untouched dry vocal). |
 | **Output** | -24 to +24 | 0 | dB | Output trim, applied after the doubler and before Mix. Use to compensate level changes introduced by Comp or Double before the signal hits the next stage in your chain. |
@@ -64,13 +69,15 @@ All parameters are smoothed (no zipper noise on automation or manual knob moves)
 
 - **De-ess before adding Air or Comp.** Sibilance energy sits in the same region Air boosts, and a broadband compressor will react to sibilant peaks just like any other transient - de-essing first keeps both of those stages working on a cleaner signal.
 - **Use De-Ess Listen when you're not sure where the sibilance is.** It's much faster to sweep De-Ess Freq while soloing the detected band than to sweep it by ear against the full mix.
+- **Reach for De-Ess Width before widening De-Ess Freq's sweep.** If de-essing is catching the wrong sound (too "woosh"y, or missing the actual "s"), narrowing Width (lower values) first is usually more surgical than moving the center frequency.
+- **Comp's release adapts on its own - you don't need a release knob.** It stays fast and transparent on isolated loud moments, and glues more noticeably during sustained loud passages, without any extra control to set.
 - **Comp is a glue knob, not a leveling tool.** If a take has wildly inconsistent level (very quiet verses, very loud choruses), fix that with clip gain or a dedicated leveling compressor upstream first; Comp's gentle 3:1 maximum ratio is meant to add consistency and cohesion on an already-reasonably-level take, not to rescue a wildly uneven one.
 - **Double is additive, not a replacement for real doubled takes.** For choir parts, a handful of Double at low-to-moderate amounts on top of a couple of real recorded layers usually sounds fuller and more natural than relying on Double alone to simulate an entire choir from a single take.
 - **Watch Width on a mono-sensitive mix.** If your material may be folded to mono (streaming platforms, some broadcast chains), check the doubler with Width pulled back toward 0% to make sure the doubled voices don't cancel unpleasantly when summed.
 - **Zero latency means Seraph is safe in parallel chains.** Because Seraph never reports plugin delay, you can freely blend a Seraph-processed vocal bus against an untouched dry vocal bus (or duplicate a track and run two different Seraph settings on each) without needing your DAW to time-align anything.
 
-## Known limitations (v0.1.0)
+## Known limitations (v0.2.0)
 
-- The GUI is a functional slider/knob editor (custom vector-drawn GUI is a later milestone - see the project roadmap).
-- No factory presets yet (also a later milestone).
+- The GUI is a functional slider/knob editor plus a plain preset bar (custom vector-drawn GUI is a later milestone - see the project roadmap).
 - The doubler's detune is a continuous vibrato-style pitch wobble, not a full formant-preserving pitch shift - within its 0-50 cent range this does not produce audible "chipmunk" formant artifacts, but it is not a substitute for a dedicated harmonizer/pitch-shifter plugin if you need larger, formant-corrected pitch intervals.
+- De-Ess's detection threshold is still a fixed, absolute level (not level-relative/adaptive) - a very quiet take may need its gain staged up before De-Ess reacts meaningfully. See `docs/design-brief.md` ss2.1 for the honest reasoning behind not changing this in v0.2.0.

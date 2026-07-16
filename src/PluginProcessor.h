@@ -4,6 +4,7 @@
 #include <juce_dsp/juce_dsp.h>
 
 #include "dsp/SeraphEngine.h"
+#include "presets/PresetManager.h"
 
 // Seraph: a choir/vocal processor for operatic vocals (de-esser, "Air"
 // high-shelf, and a click-free two-voice doubler). Signal flow lives in
@@ -51,6 +52,14 @@ public:
 
     juce::AudioProcessorValueTreeState apvts;
 
+    // M2 preset system (.scaffold/specs/preset-system-m2.md,
+    // src/presets/PresetManager.h). Constructed after apvts (its
+    // constructor registers APVTS parameter listeners) and public so
+    // SeraphAudioProcessorEditor's PresetBar can talk to it directly - the
+    // same "processor owns it, editor references it" pattern apvts itself
+    // already uses.
+    basilica::presets::PresetManager presetManager;
+
 private:
     SeraphEngine engine;
 
@@ -59,6 +68,7 @@ private:
     // them (no allocation/locks on the audio thread).
     std::atomic<float>* deEssAmount = nullptr;
     std::atomic<float>* deEssFreqHz = nullptr;
+    std::atomic<float>* deEssWidth = nullptr;
     std::atomic<float>* deEssListen = nullptr;
     std::atomic<float>* airDb = nullptr;
     std::atomic<float>* compAmount = nullptr;

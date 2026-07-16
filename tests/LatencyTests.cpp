@@ -42,6 +42,7 @@ TEST_CASE ("Latency stays 0 regardless of parameter settings", "[latency]")
     };
 
     setMax ("deEss");
+    setMax ("deEssWidth");
     setMax ("deEssListen");
     setMax ("air");
     setMax ("comp");

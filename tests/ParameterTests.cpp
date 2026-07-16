@@ -58,6 +58,7 @@ TEST_CASE ("Processor instantiates with the expected parameters", "[processor][p
         static constexpr const char* allIds[] = {
             ParamIDs::deEss,
             ParamIDs::deEssFreq,
+            ParamIDs::deEssWidth,
             ParamIDs::deEssListen,
             ParamIDs::air,
             ParamIDs::comp,
@@ -72,9 +73,10 @@ TEST_CASE ("Processor instantiates with the expected parameters", "[processor][p
             CHECK (apvts.getParameter (id) != nullptr);
     }
 
-    SECTION ("total parameter count matches the v0.1.0 layout")
+    SECTION ("total parameter count matches the v0.2.0 layout")
     {
-        CHECK (apvts.processor.getParameters().size() == 10);
+        // v0.1.0 had 10; v0.2.0 adds DeEssWidth (docs/design-brief.md ss2.1).
+        CHECK (apvts.processor.getParameters().size() == 11);
     }
 
     SECTION ("DeEssListen: sibilance-listen toggle defaults off")
@@ -102,10 +104,16 @@ TEST_CASE ("Processor instantiates with the expected parameters", "[processor][p
         checkFloatRange (apvts, ParamIDs::deEssFreq, 3000.0f, 12000.0f);
     }
 
-    SECTION ("Air: high-shelf gain defaults and range")
+    SECTION ("DeEssWidth: sibilance detection bandwidth defaults and range (new in v0.2.0)")
     {
-        checkFloatDefault (apvts, ParamIDs::air, 3.0f);
-        checkFloatRange (apvts, ParamIDs::air, -12.0f, 12.0f);
+        checkFloatDefault (apvts, ParamIDs::deEssWidth, 40.0f);
+        checkFloatRange (apvts, ParamIDs::deEssWidth, 0.0f, 100.0f);
+    }
+
+    SECTION ("Air: high-shelf gain defaults and range (v0.2.0: narrowed to -6/+9 dB, default +2 dB)")
+    {
+        checkFloatDefault (apvts, ParamIDs::air, 2.0f);
+        checkFloatRange (apvts, ParamIDs::air, -6.0f, 9.0f);
     }
 
     SECTION ("Double: doubler send amount defaults and range")
@@ -114,10 +122,25 @@ TEST_CASE ("Processor instantiates with the expected parameters", "[processor][p
         checkFloatRange (apvts, ParamIDs::doubleAmount, 0.0f, 100.0f);
     }
 
-    SECTION ("DoubleDetune: modulated-delay detune depth defaults and range")
+    SECTION ("DoubleDetune: modulated-delay detune depth defaults and range (v0.2.0: default 15 -> 10 cents)")
     {
-        checkFloatDefault (apvts, ParamIDs::doubleDetune, 15.0f);
+        checkFloatDefault (apvts, ParamIDs::doubleDetune, 10.0f);
         checkFloatRange (apvts, ParamIDs::doubleDetune, 0.0f, 50.0f);
+    }
+
+    SECTION ("DoubleDetune: power-law taper gives the tight-double register more knob travel (v0.2.0)")
+    {
+        // cents = 50 * p^2.2 (docs/design-brief.md ss2.4): at the knob's
+        // midpoint (p == 0.5), the resulting cents value must sit below the
+        // range's own midpoint (25 cents) - confirms the reshaped taper
+        // actually favours the low-cents "tight double" register, not just
+        // documented as doing so.
+        auto* param = dynamic_cast<juce::AudioParameterFloat*> (apvts.getParameter (ParamIDs::doubleDetune));
+        REQUIRE (param != nullptr);
+
+        const auto centsAtMidpoint = param->convertFrom0to1 (0.5f);
+        CHECK (centsAtMidpoint < 25.0f);
+        CHECK (centsAtMidpoint > 0.0f);
     }
 
     SECTION ("DoubleWidth: doubler pan spread defaults and range")

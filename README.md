@@ -18,17 +18,18 @@ See [`docs/manual.md`](docs/manual.md) for the full user manual (signal-flow exp
 
 ## Features
 
-- **De-Ess** - a single-band, zero-latency dynamic EQ that detects sibilance energy around a tunable center frequency (`DeEssFreq`, ~5-9 kHz) and reduces it dynamically, without a lookahead delay. A **Listen** mode solos the detected band for tuning `DeEssFreq` by ear.
-- **Air** - a fixed-frequency (12 kHz) high-shelf for adding (or removing) openness above the vocal's presence range.
-- **Gentle Compressor** - a single-knob, zero-latency broadband "glue" compressor (`Comp`, 0-100%) that scales threshold and ratio together up to a deliberately gentle 3:1 maximum, sitting after Air and before the Doubler so all doubled voices track a consistent level.
+- **De-Ess** - a single-band, zero-latency dynamic EQ that detects sibilance energy around a tunable center frequency (`DeEssFreq`, ~5-9 kHz) with an adjustable detection bandwidth (`DeEssWidth`) and reduces it dynamically, without a lookahead delay. A **Listen** mode solos the detected band for tuning by ear.
+- **Air** - a fixed-frequency (12 kHz) high-shelf with a wide, gentle transition for adding (or removing) openness above the vocal's presence range.
+- **Gentle Compressor** - a single-knob, zero-latency broadband "glue" compressor (`Comp`, 0-100%) with a program-dependent auto-release, scaling threshold and ratio together up to a deliberately gentle 3:1 maximum, sitting after Air and before the Doubler so all doubled voices track a consistent level.
 - **Doubler** - four short, independently modulated-delay voices at fixed per-voice pan positions (a small-choir spread, not a single symmetric L/R pair), slightly detuned (`DoubleDetune`, in cents) and spread across the stereo field (`DoubleWidth`), blended in (`Double`) on top of the centered dry signal - a classic vocal-doubling trick, implemented click-free (continuous delay modulation, never a discrete pitch-shift reset).
 - **Mix** / **Output** - overall dry/wet blend and output trim.
+- **Presets** - a preset bar with factory and user presets, save/rename/delete, and single-file/bank import-export.
 
 ## Signal flow
 
 ```
-input -> De-Ess (sibilance dynamic EQ, + Listen mode) -> Air (high-shelf)
-       -> Gentle Compressor (broadband glue) -> Doubler (4 voices, per-voice pan)
+input -> De-Ess (sibilance dynamic EQ, + Width + Listen mode) -> Air (high-shelf)
+       -> Gentle Compressor (broadband glue, auto-release) -> Doubler (4 voices, per-voice pan)
        -> Output trim -> Mix -> output
 ```
 
@@ -40,20 +41,21 @@ See [`docs/architecture.md`](docs/architecture.md) for the full diagram, the de-
 |---|---|---|---|
 | De-Ess | 0-100 | 30 | % |
 | De-Ess Freq | 3,000-12,000 | 7,000 | Hz |
+| De-Ess Width | 0-100 | 40 | % |
 | De-Ess Listen | off/on | off | - |
-| Air | -12 to +12 | +3 | dB |
+| Air | -6 to +9 | +2 | dB |
 | Comp | 0-100 | 0 | % |
 | Double | 0-100 | 25 | % |
-| Double Detune | 0-50 | 15 | cents |
+| Double Detune | 0-50 | 10 | cents |
 | Double Width | 0-100 | 100 | % |
 | Mix | 0-100 | 100 | % |
 | Output | -24 to +24 | 0 | dB |
 
-Full descriptions of what each parameter does musically are in [`docs/manual.md`](docs/manual.md).
+Full descriptions of what each parameter does musically are in [`docs/manual.md`](docs/manual.md); the sourced/reasoned design rationale behind the v0.2.0 ranges/defaults is in [`docs/design-brief.md`](docs/design-brief.md).
 
 ## Roadmap
 
-Tracked as GitHub milestones and issues (M1 DSP & tests - done for v0.1.0 - · M2 presets/state · M3 custom GUI & a11y · M4 release/signing/v1.0.0). Read them with `gh issue list` / `gh api repos/basilica-audio/seraph/milestones`.
+Tracked as GitHub milestones and issues (M1 DSP & tests - done for v0.1.0 - · M2 presets/state - done for v0.2.0 - · M3 custom GUI & a11y · M4 release/signing/v1.0.0). Read them with `gh issue list` / `gh api repos/basilica-audio/seraph/milestones`.
 <!-- ==END BODY== -->
 
 ## Installation

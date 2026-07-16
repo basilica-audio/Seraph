@@ -3,15 +3,65 @@
 #include "params/ParameterIds.h"
 #include "params/ParameterLayout.h"
 
+#include <BinaryData.h>
+
+namespace
+{
+    // The small, Seraph-specific config surface PresetManager needs (see
+    // src/presets/PresetManager.h's class docs) - everything else about the
+    // preset system is fully generic and portable across the suite (see
+    // docs/preset-system-notes.md in sibling plugin nave, the M2 pilot).
+    basilica::presets::PresetManagerConfig makePresetManagerConfig()
+    {
+        // JucePlugin_CFBundleIdentifier expands to a raw (unquoted) token
+        // sequence, not a string literal - JUCE_STRINGIFY() is the
+        // documented way to turn it into one. Always "com.yvesvogl.seraph"
+        // here (BUNDLE_ID in CMakeLists.txt), matching the "plugin" field
+        // baked into every presets/factory/*.json file.
+        basilica::presets::PresetManagerConfig config;
+        config.pluginId = JUCE_STRINGIFY (JucePlugin_CFBundleIdentifier);
+        config.pluginName = JucePlugin_Name;
+        config.manufacturerName = "Yves Vogl";
+        config.pluginVersion = JucePlugin_VersionString;
+        // userPresetsDirectoryOverrideForTests intentionally left
+        // default-constructed (empty) - production instances always use the
+        // real platform-standard preset location (see PresetManager.h).
+        return config;
+    }
+
+    // BinaryData symbol names are derived from the presets/factory/*.json
+    // file names passed to juce_add_binary_data() in CMakeLists.txt (dots
+    // become underscores) - this list must stay in sync with that SOURCES
+    // list. Order here only affects factory-preset iteration order before
+    // getAllPresets() re-sorts alphabetically, so it isn't otherwise
+    // significant.
+    std::vector<basilica::presets::FactoryPresetAsset> makeFactoryPresetAssets()
+    {
+        return {
+            { BinaryData::default_json, BinaryData::default_jsonSize },
+            { BinaryData::leadCutThrough_json, BinaryData::leadCutThrough_jsonSize },
+            { BinaryData::leadIntimateCloseMic_json, BinaryData::leadIntimateCloseMic_jsonSize },
+            { BinaryData::choirWideSpread_json, BinaryData::choirWideSpread_jsonSize },
+            { BinaryData::choirTightBlend_json, BinaryData::choirTightBlend_jsonSize },
+            { BinaryData::spokenGrowledInterlude_json, BinaryData::spokenGrowledInterlude_jsonSize },
+            { BinaryData::glueOnly_json, BinaryData::glueOnly_jsonSize },
+            { BinaryData::deEssOnlySurgical_json, BinaryData::deEssOnlySurgical_jsonSize },
+            { BinaryData::wideDoubleNoDynamics_json, BinaryData::wideDoubleNoDynamics_jsonSize },
+        };
+    }
+}
+
 //==============================================================================
 SeraphAudioProcessor::SeraphAudioProcessor()
     : AudioProcessor (BusesProperties()
                           .withInput ("Input", juce::AudioChannelSet::stereo(), true)
                           .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
-      apvts (*this, nullptr, "PARAMETERS", createParameterLayout())
+      apvts (*this, nullptr, "PARAMETERS", createParameterLayout()),
+      presetManager (apvts, makePresetManagerConfig(), makeFactoryPresetAssets())
 {
     deEssAmount = apvts.getRawParameterValue (ParamIDs::deEss);
     deEssFreqHz = apvts.getRawParameterValue (ParamIDs::deEssFreq);
+    deEssWidth = apvts.getRawParameterValue (ParamIDs::deEssWidth);
     deEssListen = apvts.getRawParameterValue (ParamIDs::deEssListen);
     airDb = apvts.getRawParameterValue (ParamIDs::air);
     compAmount = apvts.getRawParameterValue (ParamIDs::comp);
@@ -23,6 +73,7 @@ SeraphAudioProcessor::SeraphAudioProcessor()
 
     jassert (deEssAmount != nullptr);
     jassert (deEssFreqHz != nullptr);
+    jassert (deEssWidth != nullptr);
     jassert (deEssListen != nullptr);
     jassert (airDb != nullptr);
     jassert (compAmount != nullptr);
@@ -31,6 +82,11 @@ SeraphAudioProcessor::SeraphAudioProcessor()
     jassert (doubleWidth != nullptr);
     jassert (mixPercent != nullptr);
     jassert (outputDb != nullptr);
+
+    // M2 default resolution: user "Default" preset > factory "Default"
+    // preset > the ParameterLayout defaults apvts was just constructed
+    // with above (see PresetManager::applyStartupDefault()'s docs).
+    presetManager.applyStartupDefault();
 }
 
 SeraphAudioProcessor::~SeraphAudioProcessor() = default;
@@ -104,6 +160,7 @@ void SeraphAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock
     // values rather than the engine's built-in defaults.
     engine.setDeEssAmountProportion (deEssAmount->load (std::memory_order_relaxed) * 0.01f);
     engine.setDeEssFrequencyHz (deEssFreqHz->load (std::memory_order_relaxed));
+    engine.setDeEssWidthProportion (deEssWidth->load (std::memory_order_relaxed) * 0.01f);
     engine.setDeEssListenEnabled (deEssListen->load (std::memory_order_relaxed) >= 0.5f);
     engine.setAirDb (airDb->load (std::memory_order_relaxed));
     engine.setCompAmountProportion (compAmount->load (std::memory_order_relaxed) * 0.01f);
@@ -161,6 +218,7 @@ void SeraphAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce:
 
     engine.setDeEssAmountProportion (deEssAmount->load (std::memory_order_relaxed) * 0.01f);
     engine.setDeEssFrequencyHz (deEssFreqHz->load (std::memory_order_relaxed));
+    engine.setDeEssWidthProportion (deEssWidth->load (std::memory_order_relaxed) * 0.01f);
     engine.setDeEssListenEnabled (deEssListen->load (std::memory_order_relaxed) >= 0.5f);
     engine.setAirDb (airDb->load (std::memory_order_relaxed));
     engine.setCompAmountProportion (compAmount->load (std::memory_order_relaxed) * 0.01f);

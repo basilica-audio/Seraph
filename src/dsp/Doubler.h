@@ -76,11 +76,16 @@ private:
         float panSpread;
     };
 
+    // v0.2.0: base delays re-centered from 13/17/23/29 ms into the 9-24 ms
+    // neighborhood of the doubler reference class documented in
+    // docs/research-notes.md (tight end ~8-12 ms, outer end ~6-25 ms - see
+    // docs/design-brief.md ss2.4). LFO rates/phases/pan roles are unchanged
+    // (no reference source published exact 4-voice LFO rates).
     static constexpr std::array<VoiceConfig, numVoices> voiceConfigs { {
-        { 17.0f, 0.23f, 0.0, -1.0f },                                    // outer left
-        { 23.0f, 0.31f, juce::MathConstants<double>::pi, 1.0f },         // outer right
+        { 9.0f, 0.23f, 0.0, -1.0f },                                     // outer left
+        { 24.0f, 0.31f, juce::MathConstants<double>::pi, 1.0f },         // outer right
         { 13.0f, 0.17f, juce::MathConstants<double>::halfPi, -1.0f / 3.0f }, // inner left
-        { 29.0f, 0.37f, juce::MathConstants<double>::pi * 1.5, 1.0f / 3.0f } // inner right
+        { 19.0f, 0.37f, juce::MathConstants<double>::pi * 1.5, 1.0f / 3.0f } // inner right
     } };
 
     static constexpr float maxDetuneCents = 50.0f;
@@ -103,7 +108,7 @@ private:
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> widthSmoothed;
 
     float lastAmount01 = 0.25f;
-    float lastDetuneCents = 15.0f;
+    float lastDetuneCents = 10.0f; // v0.2.0 default (was 15), see ParameterLayout.cpp
     float lastWidth01 = 1.0f;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Doubler)

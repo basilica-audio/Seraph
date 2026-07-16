@@ -1,0 +1,20 @@
+{
+    "format": "basilica-preset-1",
+    "plugin": "com.yvesvogl.seraph",
+    "pluginVersion": "0.2.0",
+    "name": "Glue Only",
+    "category": "FX",
+    "parameters": {
+        "deEss": 0.0,
+        "deEssFreq": 7000.0,
+        "deEssWidth": 40.0,
+        "deEssListen": 0.0,
+        "air": 0.0,
+        "comp": 50.0,
+        "double": 0.0,
+        "doubleDetune": 10.0,
+        "doubleWidth": 0.0,
+        "mix": 100.0,
+        "output": 0.0
+    }
+}

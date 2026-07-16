@@ -14,6 +14,14 @@ namespace
         const auto nyquist = static_cast<float> (sampleRate) * 0.5f;
         return juce::jlimit (200.0f, nyquist * 0.9f, frequencyHz);
     }
+
+    // DeEssWidth (0-100%) -> detector Q, linear between the two extremes
+    // documented in DeEsser.h (0% -> maxDetectorQ/narrow, 100% ->
+    // minDetectorQ/wide).
+    float widthToQ (float width01, float minQ, float maxQ) noexcept
+    {
+        return juce::jmap (juce::jlimit (0.0f, 1.0f, width01), 0.0f, 1.0f, maxQ, minQ);
+    }
 }
 
 void DeEsser::prepare (const juce::dsp::ProcessSpec& spec)
@@ -26,7 +34,7 @@ void DeEsser::prepare (const juce::dsp::ProcessSpec& spec)
     envelopeState.assign (numChannels, 0.0f);
 
     detectorCoefficients = juce::dsp::IIR::Coefficients<float>::makeBandPass (
-        sampleRate, clampBelowNyquist (lastFrequencyHz, sampleRate), detectorQ);
+        sampleRate, clampBelowNyquist (lastFrequencyHz, sampleRate), widthToQ (lastWidth01, minDetectorQ, maxDetectorQ));
 
     for (auto& filter : detectorFilters)
         filter.coefficients = detectorCoefficients;
@@ -35,6 +43,8 @@ void DeEsser::prepare (const juce::dsp::ProcessSpec& spec)
     frequencySmoothed.setCurrentAndTargetValue (lastFrequencyHz);
     amountSmoothed.reset (sampleRate, smoothingTimeSeconds);
     amountSmoothed.setCurrentAndTargetValue (lastAmount01);
+    widthSmoothed.reset (sampleRate, smoothingTimeSeconds);
+    widthSmoothed.setCurrentAndTargetValue (lastWidth01);
 
     reset();
 }
@@ -60,6 +70,12 @@ void DeEsser::setFrequencyHz (float newFrequencyHz)
     frequencySmoothed.setTargetValue (newFrequencyHz);
 }
 
+void DeEsser::setWidthProportion (float newWidth01)
+{
+    lastWidth01 = newWidth01;
+    widthSmoothed.setTargetValue (newWidth01);
+}
+
 void DeEsser::process (juce::dsp::AudioBlock<float>& block) noexcept
 {
     const auto numChannels = block.getNumChannels();
@@ -70,6 +86,8 @@ void DeEsser::process (juce::dsp::AudioBlock<float>& block) noexcept
 
     const auto frequencyHz = clampBelowNyquist (frequencySmoothed.skip (static_cast<int> (numSamples)), sampleRate);
     const auto amount01 = juce::jlimit (0.0f, 1.0f, amountSmoothed.skip (static_cast<int> (numSamples)));
+    const auto width01 = juce::jlimit (0.0f, 1.0f, widthSmoothed.skip (static_cast<int> (numSamples)));
+    const auto detectorQ = widthToQ (width01, minDetectorQ, maxDetectorQ);
 
     // Bit-exact bypass at amount == 0: skip the whole reduction computation
     // (still advance the detector filter/envelope state below so re-enabling

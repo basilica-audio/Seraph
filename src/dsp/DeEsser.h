@@ -39,6 +39,13 @@ public:
     // Center frequency of the sibilance detection/reduction band, Hz.
     void setFrequencyHz (float newFrequencyHz);
 
+    // Detection bandwidth, 0-100% (v0.2.0, docs/design-brief.md ss2.1): maps
+    // to the detector bandpass filter's Q, 0% -> minDetectorQ (narrow,
+    // 3.0) through 100% -> maxDetectorQ (wide, 0.7). Does not affect the
+    // DeEss == 0% bit-exact bypass - only which coefficients feed the
+    // detector filter.
+    void setWidthProportion (float newWidth01);
+
     // Sibilance-listen ("solo") mode: when true, process() writes the raw
     // detected sibilance band (the bandpassed detector signal) into `block`
     // instead of the gain-reduced full signal, so DeEssFreq can be tuned by
@@ -55,7 +62,15 @@ public:
     float getCurrentGainReductionDb() const noexcept { return currentGainReductionDb; }
 
 private:
-    static constexpr float detectorQ = 1.2f;
+    // v0.2.0: the old fixed detectorQ = 1.2 constant is replaced by
+    // DeEssWidth, a user-facing control mapped linearly between these two
+    // extremes (see docs/design-brief.md ss2.1 and ss5's honesty note - this
+    // Q range is reasoned, not sourced to an exact figure from either
+    // reference de-esser's manual). At the parameter's own default (40%),
+    // this reproduces a Q reasonably close to (not identical to) v1's fixed
+    // 1.2, documented here rather than left implicit.
+    static constexpr float minDetectorQ = 0.7f;  // DeEssWidth == 100% (wide)
+    static constexpr float maxDetectorQ = 3.0f;  // DeEssWidth == 0% (narrow)
     static constexpr float thresholdDb = -28.0f;
     static constexpr float maxReductionRangeDb = 24.0f; // at amount == 100%
     static constexpr double attackTimeSeconds = 0.001;
@@ -78,9 +93,11 @@ private:
 
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> frequencySmoothed;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> amountSmoothed;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> widthSmoothed;
 
     float lastFrequencyHz = 7000.0f;
     float lastAmount01 = 0.3f;
+    float lastWidth01 = 0.4f;
 
     float currentGainReductionDb = 0.0f;
     bool listenEnabled = false;

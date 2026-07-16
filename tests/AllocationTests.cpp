@@ -35,6 +35,7 @@ TEST_CASE ("SeraphAudioProcessor::processBlock allocates no memory with every st
     // them (not just Air/DeEsser) shows up here.
     setParam (processor, ParamIDs::deEss, 70.0f);
     setParam (processor, ParamIDs::deEssFreq, 7500.0f);
+    setParam (processor, ParamIDs::deEssWidth, 75.0f);
     setParam (processor, ParamIDs::comp, 60.0f);
     setParam (processor, ParamIDs::air, 6.0f);
     setParam (processor, ParamIDs::doubleAmount, 80.0f);

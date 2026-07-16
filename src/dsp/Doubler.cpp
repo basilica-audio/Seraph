@@ -3,11 +3,11 @@
 namespace
 {
     constexpr float minDelaySamples = 0.0f;
-    // Generous headroom above the largest base delay (29 ms) + worst-case
-    // modulation depth (~20 ms at maxDetuneCents and the slowest LFO rate)
-    // so setDelay()/popSample() never has to clamp against the delay line's
-    // own capacity in normal operation; the runtime clamp below is purely a
-    // defensive backstop.
+    // Generous headroom above the largest base delay (24 ms, v0.2.0) +
+    // worst-case modulation depth (~20 ms at maxDetuneCents and the slowest
+    // LFO rate) so setDelay()/popSample() never has to clamp against the
+    // delay line's own capacity in normal operation; the runtime clamp below
+    // is purely a defensive backstop.
     constexpr float maxDelayLineMs = 150.0f;
 }
 
