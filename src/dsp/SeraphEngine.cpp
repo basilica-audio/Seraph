@@ -1,4 +1,5 @@
 #include "SeraphEngine.h"
+#include "RealtimeCoefficients.h"
 
 SeraphEngine::SeraphEngine() = default;
 
@@ -101,8 +102,15 @@ void SeraphEngine::process (juce::dsp::AudioBlock<float>& block) noexcept
     const auto airDb = airDbSmoothed.skip (static_cast<int> (numSamples));
     const auto wetMix = juce::jlimit (0.0f, 1.0f, mixSmoothed.skip (static_cast<int> (numSamples)));
 
-    *airShelf.state = *juce::dsp::IIR::Coefficients<float>::makeHighShelf (
+    // Real-time-safe recompute: ArrayCoefficients::makeHighShelf returns a
+    // stack std::array (no allocation), written in place into the already-
+    // allocated airShelf.state object below - unlike
+    // Coefficients<float>::makeHighShelf (used once in prepare() above),
+    // which heap-allocates a brand new Coefficients object on every call.
+    // See RealtimeCoefficients.h and basilica-audio/Seraph issue #12.
+    const auto rawAirShelfCoefficients = juce::dsp::IIR::ArrayCoefficients<float>::makeHighShelf (
         sampleRate, airFrequencyHz, airShelfQ, juce::Decibels::decibelsToGain (airDb));
+    srph::applyBiquadCoefficients (*airShelf.state, rawAirShelfCoefficients);
 
     // Capture the true dry signal before any processing touches `block`, for
     // the final Mix crossfade below. Bounded by dryBuffer's prepare()-time
