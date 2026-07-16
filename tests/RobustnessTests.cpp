@@ -23,7 +23,8 @@ TEST_CASE ("Silence produces silence (and no NaN/Inf)", "[robustness]")
     processor.prepareToPlay (48000.0, 512);
 
     setParam (processor, ParamIDs::deEss, 80.0f);
-    setParam (processor, ParamIDs::air, 12.0f);
+    setParam (processor, ParamIDs::deEssWidth, 90.0f);
+    setParam (processor, ParamIDs::air, 9.0f); // v0.2.0's new max (was +12)
     setParam (processor, ParamIDs::doubleAmount, 80.0f);
     setParam (processor, ParamIDs::mix, 100.0f);
 
@@ -45,8 +46,9 @@ TEST_CASE ("Full-scale sibilant-like input at maximum settings produces no NaN/I
 
     setParam (processor, ParamIDs::deEss, 100.0f);
     setParam (processor, ParamIDs::deEssFreq, 9000.0f);
+    setParam (processor, ParamIDs::deEssWidth, 100.0f);
     setParam (processor, ParamIDs::comp, 100.0f);
-    setParam (processor, ParamIDs::air, 12.0f);
+    setParam (processor, ParamIDs::air, 9.0f); // v0.2.0's new max (was +12)
     setParam (processor, ParamIDs::doubleAmount, 100.0f);
     setParam (processor, ParamIDs::doubleDetune, 50.0f);
     setParam (processor, ParamIDs::doubleWidth, 100.0f);
@@ -58,7 +60,7 @@ TEST_CASE ("Full-scale sibilant-like input at maximum settings produces no NaN/I
     // reprocessing the previous iteration's already-processed output: unlike
     // overture's oversampled tanh clipper, nothing in Seraph's chain is a
     // saturating nonlinearity, so repeatedly re-feeding a linear gain chain
-    // (Air +12 dB * Doubler sum * Output +24 dB) its own output would
+    // (Air +9 dB * Doubler sum * Output +24 dB) its own output would
     // compound exponentially every iteration - that is a test-construction
     // artifact, not a representative "full-scale input" scenario.
     juce::AudioBuffer<float> buffer (2, 512);
@@ -72,7 +74,7 @@ TEST_CASE ("Full-scale sibilant-like input at maximum settings produces no NaN/I
     }
 
     // Generous sane bound for a linear gain chain at extreme (but valid)
-    // parameter combinations (Air +12 dB, Double 100% summed both voices,
+    // parameter combinations (Air +9 dB, Double 100% summed both voices,
     // Output +24 dB stacked on a full-scale input) - not "finite" alone,
     // but not the exponential blow-up an accidental feedback loop would
     // produce either.
@@ -149,8 +151,9 @@ TEST_CASE ("Extreme parameter values at both range edges produce no NaN/Inf", "[
     {
         setParam (processor, ParamIDs::deEss, useMinimum ? 0.0f : 100.0f);
         setParam (processor, ParamIDs::deEssFreq, useMinimum ? 3000.0f : 12000.0f);
+        setParam (processor, ParamIDs::deEssWidth, useMinimum ? 0.0f : 100.0f);
         setParam (processor, ParamIDs::comp, useMinimum ? 0.0f : 100.0f);
-        setParam (processor, ParamIDs::air, useMinimum ? -12.0f : 12.0f);
+        setParam (processor, ParamIDs::air, useMinimum ? -6.0f : 9.0f); // v0.2.0 range (was -12/+12)
         setParam (processor, ParamIDs::doubleAmount, useMinimum ? 0.0f : 100.0f);
         setParam (processor, ParamIDs::doubleDetune, useMinimum ? 0.0f : 50.0f);
         setParam (processor, ParamIDs::doubleWidth, useMinimum ? 0.0f : 100.0f);
@@ -188,8 +191,9 @@ TEST_CASE ("Rapid parameter automation across many blocks produces no NaN/Inf", 
     {
         setParam (processor, ParamIDs::deEss, unit (rng) * 100.0f);
         setParam (processor, ParamIDs::deEssFreq, 3000.0f + unit (rng) * 9000.0f);
+        setParam (processor, ParamIDs::deEssWidth, unit (rng) * 100.0f);
         listenParam->setValueNotifyingHost (unit (rng) > 0.5f ? 1.0f : 0.0f);
-        setParam (processor, ParamIDs::air, -12.0f + unit (rng) * 24.0f);
+        setParam (processor, ParamIDs::air, -6.0f + unit (rng) * 15.0f); // v0.2.0 range (was -12/+12)
         setParam (processor, ParamIDs::comp, unit (rng) * 100.0f);
         setParam (processor, ParamIDs::doubleAmount, unit (rng) * 100.0f);
         setParam (processor, ParamIDs::doubleDetune, unit (rng) * 50.0f);

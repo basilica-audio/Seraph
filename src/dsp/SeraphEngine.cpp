@@ -49,6 +49,11 @@ void SeraphEngine::setDeEssFrequencyHz (float newFrequencyHz)
     deEsser.setFrequencyHz (newFrequencyHz);
 }
 
+void SeraphEngine::setDeEssWidthProportion (float newWidth01)
+{
+    deEsser.setWidthProportion (newWidth01);
+}
+
 void SeraphEngine::setDeEssListenEnabled (bool shouldListen)
 {
     deEsser.setListenEnabled (shouldListen);

@@ -1,0 +1,20 @@
+{
+    "format": "basilica-preset-1",
+    "plugin": "com.yvesvogl.seraph",
+    "pluginVersion": "0.2.0",
+    "name": "Choir - Tight Blend",
+    "category": "Vocals",
+    "parameters": {
+        "deEss": 25.0,
+        "deEssFreq": 7000.0,
+        "deEssWidth": 35.0,
+        "deEssListen": 0.0,
+        "air": 0.0,
+        "comp": 40.0,
+        "double": 30.0,
+        "doubleDetune": 10.0,
+        "doubleWidth": 70.0,
+        "mix": 100.0,
+        "output": 0.0
+    }
+}

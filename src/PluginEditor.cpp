@@ -1,6 +1,9 @@
 #include "PluginEditor.h"
 #include "PluginProcessor.h"
 #include "params/ParameterIds.h"
+#include "presets/Localisation.h"
+
+#include <BinaryData.h>
 
 namespace
 {
@@ -8,18 +11,40 @@ namespace
     constexpr int textBoxHeight = 20;
     constexpr int labelHeight = 20;
     constexpr int margin = 16;
-    constexpr int numColumns = 5;
+    constexpr int numColumns = 6;
     constexpr int numRows = 2;
+    constexpr int presetBarHeight = 28;
     constexpr int editorWidth = margin * 2 + numColumns * knobSize + (numColumns - 1) * margin;
-    constexpr int editorHeight = margin * 2 + numRows * (labelHeight + knobSize + textBoxHeight) + margin;
+    constexpr int editorHeight = margin * 3 + presetBarHeight + numRows * (labelHeight + knobSize + textBoxHeight) + margin;
+
+    // M2 i18n frame (.scaffold/specs/preset-system-m2.md): selects German
+    // (resources/i18n/de.txt) or falls through to English, once, at editor
+    // construction - see Localisation.h's docs. `presetBar` is a member
+    // initialised via the constructor's initialiser list, and its own
+    // constructor already calls TRANS() on every button label - member
+    // initialisers run in declaration order regardless of the order they're
+    // written in, so this helper (called from presetBar's own initialiser
+    // expression below) is what actually guarantees installLocalisation()
+    // runs before presetBar exists, not a call in the constructor *body*,
+    // which would run too late. See sibling plugin nave's PluginEditor.cpp
+    // for the same pattern (the M2 pilot).
+    basilica::presets::PresetManager& initLocalisationThenGetPresetManager (SeraphAudioProcessor& processor)
+    {
+        basilica::presets::installLocalisation (BinaryData::de_txt, BinaryData::de_txtSize);
+        return processor.presetManager;
+    }
 }
 
 SeraphAudioProcessorEditor::SeraphAudioProcessorEditor (SeraphAudioProcessor& processorToEdit)
     : juce::AudioProcessorEditor (&processorToEdit),
-      audioProcessor (processorToEdit)
+      audioProcessor (processorToEdit),
+      presetBar (initLocalisationThenGetPresetManager (processorToEdit))
 {
+    addAndMakeVisible (presetBar);
+
     configureKnob (deEssKnob, ParamIDs::deEss, "De-Ess");
     configureKnob (deEssFreqKnob, ParamIDs::deEssFreq, "De-Ess Freq");
+    configureKnob (deEssWidthKnob, ParamIDs::deEssWidth, "De-Ess Width");
     configureKnob (airKnob, ParamIDs::air, "Air");
     configureKnob (compKnob, ParamIDs::comp, "Comp");
     configureKnob (doubleKnob, ParamIDs::doubleAmount, "Double");
@@ -59,6 +84,9 @@ void SeraphAudioProcessorEditor::resized()
 {
     auto bounds = getLocalBounds().reduced (margin);
 
+    presetBar.setBounds (bounds.removeFromTop (presetBarHeight));
+    bounds.removeFromTop (margin);
+
     const auto rowHeight = bounds.getHeight() / numRows;
     auto topRow = bounds.removeFromTop (rowHeight);
     auto bottomRow = bounds;
@@ -68,7 +96,7 @@ void SeraphAudioProcessorEditor::resized()
 
     const auto slotWidth = topRow.getWidth() / numColumns;
 
-    for (auto* knob : { &deEssKnob, &deEssFreqKnob })
+    for (auto* knob : { &deEssKnob, &deEssFreqKnob, &deEssWidthKnob })
         knob->slider.setBounds (topRow.removeFromLeft (slotWidth).reduced (margin / 2, 0));
 
     deEssListenButton.setBounds (topRow.removeFromLeft (slotWidth).reduced (margin / 2, knobSize / 2 - textBoxHeight / 2));

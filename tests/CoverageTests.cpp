@@ -30,11 +30,12 @@ TEST_CASE ("Engine null test holds across the full documented sample-rate range"
         SeraphEngine engine;
         engine.setDeEssAmountProportion (0.0f);
         engine.setDeEssFrequencyHz (7000.0f);
+        engine.setDeEssWidthProportion (0.4f);
         engine.setDeEssListenEnabled (false);
         engine.setAirDb (0.0f);
         engine.setCompAmountProportion (0.0f);
         engine.setDoubleAmountProportion (0.0f);
-        engine.setDoubleDetuneCents (15.0f);
+        engine.setDoubleDetuneCents (10.0f);
         engine.setDoubleWidthProportion (1.0f);
         engine.setMixProportion (1.0f);
         engine.setOutputDb (0.0f);
@@ -87,7 +88,8 @@ TEST_CASE ("Full processing chain stays finite across the sample-rate range at h
 
         setParam (processor, ParamIDs::deEss, 90.0f);
         setParam (processor, ParamIDs::deEssFreq, 11000.0f);
-        setParam (processor, ParamIDs::air, 10.0f);
+        setParam (processor, ParamIDs::deEssWidth, 85.0f);
+        setParam (processor, ParamIDs::air, 9.0f); // v0.2.0's new max (was +12, tested at 10 before)
         setParam (processor, ParamIDs::comp, 80.0f);
         setParam (processor, ParamIDs::doubleAmount, 90.0f);
         setParam (processor, ParamIDs::doubleDetune, 45.0f);
@@ -194,6 +196,7 @@ TEST_CASE ("Long-run processing at modulated settings never produces NaN/Inf or 
 
     setParam (processor, ParamIDs::deEss, 55.0f);
     setParam (processor, ParamIDs::deEssFreq, 7500.0f);
+    setParam (processor, ParamIDs::deEssWidth, 60.0f);
     setParam (processor, ParamIDs::air, 5.0f);
     setParam (processor, ParamIDs::comp, 40.0f);
     setParam (processor, ParamIDs::doubleAmount, 60.0f);

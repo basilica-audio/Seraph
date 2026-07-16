@@ -94,3 +94,76 @@ TEST_CASE ("State round-trip preserves non-default values of every parameter", "
     CHECK (mixParam->getValue() == Catch::Approx (savedMix).margin (1e-6));
     CHECK (outputParam->getValue() == Catch::Approx (savedOutput).margin (1e-6));
 }
+
+// docs/design-brief.md ss6: tolerant import of a v0.1.0-shaped state (no
+// DeEssWidth entry, which was added in v0.2.0). Loading such a state must
+// not fail or reset any *other* parameter, and the missing DeEssWidth must
+// land on its documented default (40%) rather than 0%/garbage - which holds
+// here because a freshly constructed SeraphAudioProcessor already sits at
+// each parameter's ParameterLayout default (including DeEssWidth == 40%,
+// see src/params/ParameterLayout.cpp) before setStateInformation() is ever
+// called, and JUCE 8.0.14's AudioProcessorValueTreeState::replaceState()
+// (juce_AudioProcessorValueTreeState.cpp's updateParameterConnectionsToChildTrees())
+// never touches a parameter's live value when its own "PARAM" child is
+// absent from the loaded state - it only appends a fresh (valueless) child
+// tree for it, leaving the parameter's current value exactly as it was.
+TEST_CASE ("setStateInformation tolerantly imports a v0.1.0-shaped state missing DeEssWidth", "[state][migration]")
+{
+    SeraphAudioProcessor processor;
+    processor.prepareToPlay (48000.0, 512);
+
+    // Hand-built to match AudioProcessorValueTreeState's own state shape
+    // (root "PARAMETERS", "PARAM" children with "id"/"value" properties -
+    // see JUCE 8.0.14's juce_AudioProcessorValueTreeState.h's
+    // valueType/idPropertyID/valuePropertyID), but omitting deEssWidth
+    // entirely - the v0.1.0 parameter set this simulates never had it.
+    juce::ValueTree oldState ("PARAMETERS");
+
+    auto addParam = [&oldState] (const char* id, float value)
+    {
+        juce::ValueTree param ("PARAM");
+        param.setProperty ("id", id, nullptr);
+        param.setProperty ("value", value, nullptr);
+        oldState.appendChild (param, nullptr);
+    };
+
+    addParam (ParamIDs::deEss, 72.0f);
+    addParam (ParamIDs::deEssFreq, 8200.0f);
+    addParam (ParamIDs::deEssListen, 1.0f);
+    addParam (ParamIDs::air, -4.5f); // inside both the old (-12/+12) and new (-6/+9) ranges
+    addParam (ParamIDs::comp, 65.0f);
+    addParam (ParamIDs::doubleAmount, 55.0f);
+    addParam (ParamIDs::doubleDetune, 33.0f);
+    addParam (ParamIDs::doubleWidth, 60.0f);
+    addParam (ParamIDs::mix, 42.0f);
+    addParam (ParamIDs::output, 6.5f);
+    // ParamIDs::deEssWidth deliberately absent - this is the whole point.
+
+    const std::unique_ptr<juce::XmlElement> xml (oldState.createXml());
+    juce::MemoryBlock oldStateBinary;
+    juce::AudioProcessor::copyXmlToBinary (*xml, oldStateBinary);
+
+    processor.setStateInformation (oldStateBinary.getData(), static_cast<int> (oldStateBinary.getSize()));
+
+    auto* deEssWidthParam = processor.apvts.getParameter (ParamIDs::deEssWidth);
+    REQUIRE (deEssWidthParam != nullptr);
+    CHECK (deEssWidthParam->getValue() == Catch::Approx (deEssWidthParam->convertTo0to1 (40.0f)).margin (1e-4));
+
+    auto checkParam = [&processor] (const char* id, float expected)
+    {
+        auto* param = processor.apvts.getParameter (id);
+        REQUIRE (param != nullptr);
+        CHECK (param->convertFrom0to1 (param->getValue()) == Catch::Approx (expected).margin (1e-3));
+    };
+
+    checkParam (ParamIDs::deEss, 72.0f);
+    checkParam (ParamIDs::deEssFreq, 8200.0f);
+    checkParam (ParamIDs::deEssListen, 1.0f);
+    checkParam (ParamIDs::air, -4.5f);
+    checkParam (ParamIDs::comp, 65.0f);
+    checkParam (ParamIDs::doubleAmount, 55.0f);
+    checkParam (ParamIDs::doubleDetune, 33.0f);
+    checkParam (ParamIDs::doubleWidth, 60.0f);
+    checkParam (ParamIDs::mix, 42.0f);
+    checkParam (ParamIDs::output, 6.5f);
+}

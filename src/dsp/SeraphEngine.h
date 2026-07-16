@@ -46,6 +46,7 @@ public:
     // audio thread - no allocation/locks.
     void setDeEssAmountProportion (float newAmount01);
     void setDeEssFrequencyHz (float newFrequencyHz);
+    void setDeEssWidthProportion (float newWidth01);
     void setDeEssListenEnabled (bool shouldListen);
     void setAirDb (float newAirDb);
     void setCompAmountProportion (float newAmount01);
@@ -61,7 +62,13 @@ public:
 
 private:
     static constexpr float airFrequencyHz = 12000.0f; // fixed shelf frequency, within the ~10-16 kHz "Air" register
-    static constexpr float airShelfQ = juce::MathConstants<float>::sqrt2 / 2.0f;
+    // v0.2.0: lowered from the Butterworth-Q default (sqrt2/2 ~ 0.707) to a
+    // wider, gentler explicit Q so the shelf's transition band starts
+    // roughly an octave earlier and reaches full gain roughly an octave
+    // later, per the reference class's gentle multi-octave curve - reasoned,
+    // not measured (no source publishes the reference unit's filter-design
+    // coefficients). See docs/design-brief.md ss2.2/ss5.
+    static constexpr float airShelfQ = 0.5f;
     static constexpr double smoothingTimeSeconds = 0.05;
 
     double sampleRate = 44100.0;
@@ -83,7 +90,7 @@ private:
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> airDbSmoothed;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> mixSmoothed;
 
-    float lastAirDb = 3.0f;
+    float lastAirDb = 2.0f; // v0.2.0 default (was 3.0), see ParameterLayout.cpp
     float lastMixProportion = 1.0f;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SeraphEngine)

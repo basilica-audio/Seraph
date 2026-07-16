@@ -26,11 +26,12 @@ TEST_CASE ("Engine null test: neutral settings null against the input", "[dsp][e
 
     engine.setDeEssAmountProportion (0.0f);
     engine.setDeEssFrequencyHz (7000.0f);
+    engine.setDeEssWidthProportion (0.4f);
     engine.setDeEssListenEnabled (false);
     engine.setAirDb (0.0f);
     engine.setCompAmountProportion (0.0f);
     engine.setDoubleAmountProportion (0.0f);
-    engine.setDoubleDetuneCents (15.0f);
+    engine.setDoubleDetuneCents (10.0f);
     engine.setDoubleWidthProportion (1.0f);
     engine.setMixProportion (1.0f); // fully wet - the "wet" chain itself must equal the input here
     engine.setOutputDb (0.0f);
@@ -117,7 +118,7 @@ TEST_CASE ("Air high-shelf boosts high-frequency content", "[dsp][engine][air]")
     {
         SeraphEngine engine;
         engine.setDeEssAmountProportion (0.0f);
-        engine.setAirDb (boosted ? 12.0f : 0.0f);
+        engine.setAirDb (boosted ? 9.0f : 0.0f); // v0.2.0: Air's new max is +9 dB (was +12)
         engine.setDoubleAmountProportion (0.0f);
         engine.setMixProportion (1.0f);
         engine.setOutputDb (0.0f);
@@ -136,7 +137,11 @@ TEST_CASE ("Air high-shelf boosts high-frequency content", "[dsp][engine][air]")
         (boosted ? rmsBoosted : rmsNeutral) = TestHelpers::rms (processed);
     }
 
-    CHECK (rmsBoosted > rmsNeutral * 1.5);
+    // v0.2.0's wider, gentler shelf (Q ~0.5 vs the old Butterworth ~0.707)
+    // spreads the same dB setting's gain across a wider transition band, so
+    // this uses a looser (but still clearly discriminating) margin than the
+    // old fixed-Q shelf did.
+    CHECK (rmsBoosted > rmsNeutral * 1.2);
 }
 
 TEST_CASE ("GentleCompressor reduces RMS level of a loud sustained signal", "[dsp][engine][compressor]")

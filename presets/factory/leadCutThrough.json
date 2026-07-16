@@ -1,0 +1,20 @@
+{
+    "format": "basilica-preset-1",
+    "plugin": "com.yvesvogl.seraph",
+    "pluginVersion": "0.2.0",
+    "name": "Lead - Cut Through",
+    "category": "Vocals",
+    "parameters": {
+        "deEss": 35.0,
+        "deEssFreq": 7500.0,
+        "deEssWidth": 40.0,
+        "deEssListen": 0.0,
+        "air": 5.0,
+        "comp": 25.0,
+        "double": 15.0,
+        "doubleDetune": 8.0,
+        "doubleWidth": 60.0,
+        "mix": 100.0,
+        "output": 0.0
+    }
+}

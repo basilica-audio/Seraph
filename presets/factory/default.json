@@ -1,0 +1,20 @@
+{
+    "format": "basilica-preset-1",
+    "plugin": "com.yvesvogl.seraph",
+    "pluginVersion": "0.2.0",
+    "name": "Default",
+    "category": "Init",
+    "parameters": {
+        "deEss": 30.0,
+        "deEssFreq": 7000.0,
+        "deEssWidth": 40.0,
+        "deEssListen": 0.0,
+        "air": 2.0,
+        "comp": 0.0,
+        "double": 25.0,
+        "doubleDetune": 10.0,
+        "doubleWidth": 100.0,
+        "mix": 100.0,
+        "output": 0.0
+    }
+}

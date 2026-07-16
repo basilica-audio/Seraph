@@ -1,0 +1,20 @@
+{
+    "format": "basilica-preset-1",
+    "plugin": "com.yvesvogl.seraph",
+    "pluginVersion": "0.2.0",
+    "name": "Lead - Intimate/Close-Mic",
+    "category": "Vocals",
+    "parameters": {
+        "deEss": 45.0,
+        "deEssFreq": 6500.0,
+        "deEssWidth": 55.0,
+        "deEssListen": 0.0,
+        "air": 1.0,
+        "comp": 15.0,
+        "double": 8.0,
+        "doubleDetune": 6.0,
+        "doubleWidth": 40.0,
+        "mix": 100.0,
+        "output": 0.0
+    }
+}
