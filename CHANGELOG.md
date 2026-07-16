@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-07-16
+
+### Changed
+
+- Housekeeping: canonical squircle icon cutout embedded into the plugin binary (`ICON_BIG`) and README/manual, org link sweep, heavy-music copy reframe, README pointed at GitHub Releases, and the signed tag-triggered release CI workflow added.
+
 ### Fixed
 
 - **Audio-thread heap allocation in `SeraphEngine`'s Air high-shelf**: `process()` recomputed the Air filter's coefficients via `Coefficients::makeHighShelf()` every block, which heap-allocates a new `Coefficients` object internally. Switched to the allocation-free `ArrayCoefficients::makeHighShelf()`, written in place into the existing filter state.
