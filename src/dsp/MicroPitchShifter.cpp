@@ -35,7 +35,10 @@ void MicroPitchShifter::reset()
 
 void MicroPitchShifter::setDetuneCents (float newDetuneCents) noexcept
 {
-    if (newDetuneCents == detuneCents)
+    // Exact comparison on purpose: this is a "has the caller actually changed
+    // anything" early-out, not a tolerance question. juce::exactlyEqual states
+    // that intent to both the reader and -Wfloat-equal.
+    if (juce::exactlyEqual (newDetuneCents, detuneCents))
         return;
 
     detuneCents = newDetuneCents;

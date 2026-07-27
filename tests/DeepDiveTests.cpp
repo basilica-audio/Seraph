@@ -958,8 +958,8 @@ TEST_CASE ("De-esser lookahead: at unity gain the output is the input delayed, b
     for (int sample = lookaheadSamples; sample < numSamples; ++sample)
     {
         INFO ("sample " << sample);
-        REQUIRE (output[0][static_cast<size_t> (sample)]
-                 == source[static_cast<size_t> (sample - lookaheadSamples)]);
+        REQUIRE (juce::exactlyEqual (output[0][static_cast<size_t> (sample)],
+                                     source[static_cast<size_t> (sample - lookaheadSamples)]));
     }
 }
 

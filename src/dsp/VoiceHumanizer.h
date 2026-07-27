@@ -59,10 +59,10 @@ public:
 
     void reset() noexcept
     {
-        for (int walk = 0; walk < numWalks; ++walk)
+        for (size_t walk = 0; walk < static_cast<size_t> (numWalks); ++walk)
         {
             // Distinct, non-zero seed per walk per voice.
-            states[walk] = seedBase ^ (0xA24BAED4963EE407ull * static_cast<std::uint64_t> (walk + 1));
+            states[walk] = seedBase ^ (0xA24BAED4963EE407ull * (walk + 1));
             if (states[walk] == 0)
                 states[walk] = 0x853C49E6748FEA9Bull;
 

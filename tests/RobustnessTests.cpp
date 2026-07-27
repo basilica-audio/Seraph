@@ -389,7 +389,7 @@ TEST_CASE ("The new detune engines handle poisoned samples", "[robustness][doubl
         std::vector<float> output (512, 0.0f);
 
         for (int sample = 0; sample < 512; ++sample)
-            input[static_cast<size_t> (sample)] = 0.4f * std::sin (0.05 * sample);
+            input[static_cast<size_t> (sample)] = 0.4f * std::sin (0.05f * static_cast<float> (sample));
 
         auto outputIsFinite = [&output]
         {

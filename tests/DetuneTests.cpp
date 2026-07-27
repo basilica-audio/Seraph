@@ -109,7 +109,7 @@ namespace
         {
             juce::dsp::IIR::Filter<float> resonator;
             resonator.coefficients = juce::dsp::IIR::Coefficients<float>::makePeakFilter (
-                testSampleRate, formantHz, 4.0f, juce::Decibels::decibelsToGain (18.0f));
+                testSampleRate, static_cast<float> (formantHz), 4.0f, juce::Decibels::decibelsToGain (18.0f));
             resonator.reset();
 
             for (auto& sample : shaped)
@@ -720,7 +720,7 @@ TEST_CASE ("Humanize: the random walks do not depend on the host's block size", 
     for (size_t index = 0; index < coarse.size(); ++index)
     {
         INFO ("control step " << index);
-        CHECK (coarse[index] == fine[index * 4 + 3]);
+        CHECK (juce::exactlyEqual (coarse[index], fine[index * 4 + 3]));
     }
 
     SECTION ("and the walk actually moves")
