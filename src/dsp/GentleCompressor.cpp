@@ -20,6 +20,9 @@ void GentleCompressor::reset()
     std::fill (envelopeFastState.begin(), envelopeFastState.end(), 0.0f);
     std::fill (envelopeSlowState.begin(), envelopeSlowState.end(), 0.0f);
     std::fill (releaseWeightState.begin(), releaseWeightState.end(), 0.0f);
+    linkedEnvelopeFast = 0.0f;
+    linkedEnvelopeSlow = 0.0f;
+    linkedReleaseWeight = 0.0f;
     currentGainReductionDb = 0.0f;
 }
 
@@ -56,6 +59,58 @@ void GentleCompressor::process (juce::dsp::AudioBlock<float>& block) noexcept
     const auto releaseWeightReleaseCoeff = std::exp (-1.0 / (releaseWeightReleaseTimeSeconds * sampleRate));
 
     float lastGainReductionDb = 0.0f;
+
+    if (linkEnabled)
+    {
+        // Stereo-linked detection (v0.3.0): one envelope pair and one
+        // auto-release state machine, driven by the loudest channel, so a
+        // hard-panned transient cannot pull the image sideways. Sample-outer
+        // because the shared detector needs every channel's value for the
+        // same sample before it can decide anything.
+        for (size_t sample = 0; sample < numSamples; ++sample)
+        {
+            float rectified = 0.0f;
+
+            for (size_t channel = 0; channel < numChannels; ++channel)
+            {
+                const auto inputSample = block.getChannelPointer (channel)[sample];
+                rectified = juce::jmax (rectified, inputSample * inputSample);
+            }
+
+            const auto blendedEnvelopePrev = linkedEnvelopeFast * (1.0f - linkedReleaseWeight)
+                                             + linkedEnvelopeSlow * linkedReleaseWeight;
+            const bool attacking = rectified > blendedEnvelopePrev;
+
+            const auto releaseWeightCoeff = attacking ? releaseWeightAttackCoeff : releaseWeightReleaseCoeff;
+            const auto releaseWeightTarget = attacking ? 0.0 : 1.0;
+            linkedReleaseWeight = static_cast<float> (releaseWeightCoeff * linkedReleaseWeight
+                                                      + (1.0 - releaseWeightCoeff) * releaseWeightTarget);
+
+            const auto fastCoeff = attacking ? attackCoeff : releaseFastCoeff;
+            linkedEnvelopeFast = static_cast<float> (fastCoeff * linkedEnvelopeFast + (1.0 - fastCoeff) * rectified);
+
+            const auto slowCoeff = attacking ? attackCoeff : releaseSlowCoeff;
+            linkedEnvelopeSlow = static_cast<float> (slowCoeff * linkedEnvelopeSlow + (1.0 - slowCoeff) * rectified);
+
+            if (bypassed)
+                continue;
+
+            const auto envelope = linkedEnvelopeFast * (1.0f - linkedReleaseWeight)
+                                  + linkedEnvelopeSlow * linkedReleaseWeight;
+            const auto envelopeDb = juce::Decibels::gainToDecibels (std::sqrt (juce::jmax (envelope, 1.0e-12f)), -120.0f);
+            const auto overshootDb = juce::jmax (0.0f, envelopeDb - thresholdDb);
+            const auto reductionDb = overshootDb * ratioFactor;
+            const auto gainFactor = juce::Decibels::decibelsToGain (-reductionDb);
+
+            for (size_t channel = 0; channel < numChannels; ++channel)
+                block.getChannelPointer (channel)[sample] *= gainFactor;
+
+            lastGainReductionDb = reductionDb;
+        }
+
+        currentGainReductionDb = bypassed ? 0.0f : lastGainReductionDb;
+        return;
+    }
 
     for (size_t channel = 0; channel < numChannels; ++channel)
     {

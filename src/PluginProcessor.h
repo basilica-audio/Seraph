@@ -88,6 +88,27 @@ private:
     std::atomic<float>* doubleWidth = nullptr;
     std::atomic<float>* mixPercent = nullptr;
     std::atomic<float>* outputDb = nullptr;
+    std::atomic<float>* doubleMode = nullptr;
+    std::atomic<float>* doubleHumanize = nullptr;
+    std::atomic<float>* doubleFormant = nullptr;
+    std::atomic<float>* deEssLink = nullptr;
+    std::atomic<float>* deEssKnee = nullptr;
+    std::atomic<float>* deEssLookahead = nullptr;
+    std::atomic<float>* airFreq = nullptr;
+    std::atomic<float>* compLink = nullptr;
+
+    // Pushes the current APVTS values into the engine. Shared by
+    // prepareToPlay() and processBlock() so the two can never drift apart -
+    // a parameter wired into one but not the other would silently ignore its
+    // session value until the first block after a change.
+    void pushParametersToEngine();
+
+    // Last value handed to setLatencySamples(). The doubler's Shift mode and
+    // the de-esser's lookahead both change reported latency, so this is
+    // re-checked every block and reported only on an actual change; both
+    // parameters are non-automatable, so in practice it fires once per
+    // deliberate user action.
+    int lastReportedLatencySamples = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SeraphAudioProcessor)
 };

@@ -70,6 +70,23 @@ SeraphAudioProcessor::SeraphAudioProcessor()
     doubleWidth = apvts.getRawParameterValue (ParamIDs::doubleWidth);
     mixPercent = apvts.getRawParameterValue (ParamIDs::mix);
     outputDb = apvts.getRawParameterValue (ParamIDs::output);
+    doubleMode = apvts.getRawParameterValue (ParamIDs::doubleMode);
+    doubleHumanize = apvts.getRawParameterValue (ParamIDs::doubleHumanize);
+    doubleFormant = apvts.getRawParameterValue (ParamIDs::doubleFormant);
+    deEssLink = apvts.getRawParameterValue (ParamIDs::deEssLink);
+    deEssKnee = apvts.getRawParameterValue (ParamIDs::deEssKnee);
+    deEssLookahead = apvts.getRawParameterValue (ParamIDs::deEssLookahead);
+    airFreq = apvts.getRawParameterValue (ParamIDs::airFreq);
+    compLink = apvts.getRawParameterValue (ParamIDs::compLink);
+
+    jassert (doubleMode != nullptr);
+    jassert (doubleHumanize != nullptr);
+    jassert (doubleFormant != nullptr);
+    jassert (deEssLink != nullptr);
+    jassert (deEssKnee != nullptr);
+    jassert (deEssLookahead != nullptr);
+    jassert (airFreq != nullptr);
+    jassert (compLink != nullptr);
 
     jassert (deEssAmount != nullptr);
     jassert (deEssFreqHz != nullptr);
@@ -158,24 +175,40 @@ void SeraphAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock
     // prepare() primes filter coefficients, so the very first block after
     // prepareToPlay() already reflects the host/session's actual parameter
     // values rather than the engine's built-in defaults.
+    pushParametersToEngine();
+
+    engine.prepare (spec);
+
+    // v0.3.0: the chain can now report latency - the doubler's Shift mode is
+    // a phase vocoder and the de-esser's lookahead is a real delay. In the
+    // default configuration (Classic mode, no lookahead) this is still 0.
+    // See docs/architecture.md.
+    lastReportedLatencySamples = engine.getLatencySamples();
+    setLatencySamples (lastReportedLatencySamples);
+}
+
+void SeraphAudioProcessor::pushParametersToEngine()
+{
     engine.setDeEssAmountProportion (deEssAmount->load (std::memory_order_relaxed) * 0.01f);
     engine.setDeEssFrequencyHz (deEssFreqHz->load (std::memory_order_relaxed));
     engine.setDeEssWidthProportion (deEssWidth->load (std::memory_order_relaxed) * 0.01f);
     engine.setDeEssListenEnabled (deEssListen->load (std::memory_order_relaxed) >= 0.5f);
+    engine.setDeEssLinkEnabled (deEssLink->load (std::memory_order_relaxed) >= 0.5f);
+    engine.setDeEssKneeDb (deEssKnee->load (std::memory_order_relaxed));
+    engine.setDeEssLookaheadMs (deEssLookahead->load (std::memory_order_relaxed));
     engine.setAirDb (airDb->load (std::memory_order_relaxed));
+    engine.setAirFrequencyChoice (static_cast<int> (std::lround (airFreq->load (std::memory_order_relaxed))));
     engine.setCompAmountProportion (compAmount->load (std::memory_order_relaxed) * 0.01f);
+    engine.setCompLinkEnabled (compLink->load (std::memory_order_relaxed) >= 0.5f);
     engine.setDoubleAmountProportion (doubleAmount->load (std::memory_order_relaxed) * 0.01f);
     engine.setDoubleDetuneCents (doubleDetuneCents->load (std::memory_order_relaxed));
     engine.setDoubleWidthProportion (doubleWidth->load (std::memory_order_relaxed) * 0.01f);
+    engine.setDoubleMode (static_cast<Doubler::Mode> (
+        juce::jlimit (0, 2, static_cast<int> (std::lround (doubleMode->load (std::memory_order_relaxed))))));
+    engine.setDoubleHumanizeProportion (doubleHumanize->load (std::memory_order_relaxed) * 0.01f);
+    engine.setDoubleFormantPreserveEnabled (doubleFormant->load (std::memory_order_relaxed) >= 0.5f);
     engine.setMixProportion (mixPercent->load (std::memory_order_relaxed) * 0.01f);
     engine.setOutputDb (outputDb->load (std::memory_order_relaxed));
-
-    engine.prepare (spec);
-
-    // Nothing in the chain (de-esser, Air shelf, doubler) adds reported host
-    // latency - the doubler's short delay lines are the effect itself, not
-    // a compensation delay (see docs/architecture.md).
-    setLatencySamples (engine.getLatencySamples());
 }
 
 void SeraphAudioProcessor::releaseResources()
@@ -216,20 +249,22 @@ void SeraphAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce:
     for (auto channel = totalNumInputChannels; channel < totalNumOutputChannels; ++channel)
         buffer.clear (channel, 0, buffer.getNumSamples());
 
-    engine.setDeEssAmountProportion (deEssAmount->load (std::memory_order_relaxed) * 0.01f);
-    engine.setDeEssFrequencyHz (deEssFreqHz->load (std::memory_order_relaxed));
-    engine.setDeEssWidthProportion (deEssWidth->load (std::memory_order_relaxed) * 0.01f);
-    engine.setDeEssListenEnabled (deEssListen->load (std::memory_order_relaxed) >= 0.5f);
-    engine.setAirDb (airDb->load (std::memory_order_relaxed));
-    engine.setCompAmountProportion (compAmount->load (std::memory_order_relaxed) * 0.01f);
-    engine.setDoubleAmountProportion (doubleAmount->load (std::memory_order_relaxed) * 0.01f);
-    engine.setDoubleDetuneCents (doubleDetuneCents->load (std::memory_order_relaxed));
-    engine.setDoubleWidthProportion (doubleWidth->load (std::memory_order_relaxed) * 0.01f);
-    engine.setMixProportion (mixPercent->load (std::memory_order_relaxed) * 0.01f);
-    engine.setOutputDb (outputDb->load (std::memory_order_relaxed));
+    pushParametersToEngine();
 
     juce::dsp::AudioBlock<float> block (buffer);
     engine.process (block);
+
+    // Report a latency change as soon as it happens. setLatencySamples() is
+    // safe to call from the audio thread in JUCE 8 (it forwards to the host's
+    // own notification path); guarding on an actual change keeps it from
+    // notifying the host every single block.
+    const auto latencySamples = engine.getLatencySamples();
+
+    if (latencySamples != lastReportedLatencySamples)
+    {
+        lastReportedLatencySamples = latencySamples;
+        setLatencySamples (latencySamples);
+    }
 }
 
 //==============================================================================
