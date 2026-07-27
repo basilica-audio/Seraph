@@ -29,9 +29,12 @@
 // constants are reasoned, not sourced to the reference class's proprietary
 // internal timing - see docs/design-brief.md ss5.
 //
-// Like DeEsser, detection/reduction is per-channel independent (not
-// stereo-linked) - documented here rather than left implicit, the same
-// acceptable simplification used elsewhere in this signal chain.
+// v0.3.0: detection is per-channel independent by default (v0.2.0's
+// documented behaviour), but can be stereo-linked via setLinkEnabled(). When
+// linked, one shared envelope built from max(env_L, env_R) drives both
+// channels - including the program-dependent auto-release state machine,
+// which then runs once on the linked envelope rather than diverging per
+// channel. Off is bit-identical to v0.2.0.
 class GentleCompressor
 {
 public:
@@ -48,6 +51,9 @@ public:
     // Amount, 0-100%: scales threshold (0 dBFS down to thresholdMinDb) and
     // ratio (1:1 up to maxRatio) together. 0% is a bit-exact bypass.
     void setAmountProportion (float newAmount01);
+
+    // Stereo-linked detection (v0.3.0). False is v0.2.0's behaviour.
+    void setLinkEnabled (bool shouldLink) noexcept { linkEnabled = shouldLink; }
 
     // Processes `block` in place. A zero-sample block is a safe no-op. No
     // allocation occurs here.
@@ -89,6 +95,14 @@ private:
     std::vector<float> envelopeFastState;
     std::vector<float> envelopeSlowState;
     std::vector<float> releaseWeightState;
+
+    // The linked detector's own single set of state, kept separate from the
+    // per-channel arrays so that toggling the link never has to reconcile
+    // two differently-shaped histories.
+    float linkedEnvelopeFast = 0.0f;
+    float linkedEnvelopeSlow = 0.0f;
+    float linkedReleaseWeight = 0.0f;
+    bool linkEnabled = false;
 
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> amountSmoothed;
 

@@ -1,7 +1,7 @@
 {
     "format": "basilica-preset-1",
     "plugin": "com.yvesvogl.seraph",
-    "pluginVersion": "0.2.0",
+    "pluginVersion": "0.3.0",
     "name": "De-Ess Only (Surgical)",
     "category": "FX",
     "parameters": {
@@ -15,6 +15,14 @@
         "doubleDetune": 10.0,
         "doubleWidth": 0.0,
         "mix": 100.0,
-        "output": 0.0
+        "output": 0.0,
+        "doubleMode": 0.0,
+        "doubleHumanize": 0.0,
+        "doubleFormant": 1.0,
+        "deEssLink": 0.0,
+        "deEssKnee": 0.0,
+        "deEssLookahead": 0.0,
+        "airFreq": 1.0,
+        "compLink": 0.0
     }
 }

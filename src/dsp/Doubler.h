@@ -3,36 +3,71 @@
 #include <juce_dsp/juce_dsp.h>
 
 #include <array>
+#include <vector>
 
-// A four-voice vocal doubler: derives a mono sum of the input, feeds it into
-// four short, independently modulated delay lines (a click-free detune trick
-// via continuous delay-length modulation - a slowly ramping/sawtooth delay
-// would be a true pitch shifter but clicks on every reset, which is exactly
-// what this avoids), and adds the voices back onto the buffer, each panned to
+#include "AlignmentDelay.h"
+#include "MicroPitchShifter.h"
+#include "SpectralShifter.h"
+#include "VoiceHumanizer.h"
+
+// A four-voice vocal doubler. A mono sum of the input feeds four independent
+// voices; each voice is delayed and detuned by its own engine, then panned to
 // its own fixed stereo position (a "per-voice pan" choir spread, not a single
-// symmetric L/R pair) scaled by DoubleWidth.
+// symmetric L/R pair) scaled by DoubleWidth and added back onto the buffer.
 //
-// The four voices' modulation LFOs run at different, non-integer-related
-// rates and start at different phases so the voices decorrelate over time
-// rather than moving in lockstep (a single shared LFO would just sound like
-// one voice with a stereo image, not four independent doubles) - this is
-// what gives Seraph's doubler a small-choir character rather than a plain
-// two-voice chorus.
+// Modes (v0.3.0, SOTA DSP brief ss3.1-ss3.3)
+// -----------------------------------------
+// * Classic - the v0.1/v0.2 engine, unchanged byte for byte: four short delay
+//   lines whose length is modulated by a slow sine, which is a click-free
+//   detune trick rather than a true pitch shift (a slowly ramping/sawtooth
+//   delay would be a true pitch shifter but clicks on every reset, which is
+//   exactly what this avoids). The four LFOs run at different, non-integer-
+//   related rates from different phases, so the voices decorrelate over time
+//   instead of moving in lockstep - that is what gives this mode its small-
+//   choir character rather than a plain two-voice chorus. Reports no latency.
 //
-// At amount == 0 the buffer is left bit-exact untouched (the doubler's
-// internal delay-line/LFO state still advances, fed from the current input,
-// so re-enabling Double mid-stream doesn't start from stale/discontinuous
-// state) - this is what keeps Double == 0% part of the plugin's null test.
+// * Micro - constant-offset dual-head micropitch (MicroPitchShifter.h). A real
+//   fixed detune rather than a wobble, so a stack holds its interval instead
+//   of breathing in and out of tune. Reports no latency; the inherent ~25 ms
+//   mean sweep delay is treated as part of the doubler sound.
+//
+// * Shift - STFT pitch shifting with optional formant preservation
+//   (SpectralShifter.h). The only mode that reports host latency.
+//
+// Mode is not automatable precisely because those latency behaviours differ;
+// switching is masked by a 10 ms fade-out / reset / fade-in of the doubled
+// voices, which is click-safe without requiring a glitch-free crossfade
+// between two simultaneously running engines.
+//
+// Humanisation (VoiceHumanizer.h) applies in every mode: slow per-voice
+// timing and level drift, plus pitch drift in the two modes that can express
+// a constant pitch offset. At Humanize == 0 every offset is exactly zero, so
+// Classic mode stays bit-identical to v0.2.0.
+//
+// At amount == 0 the buffer is left bit-exact untouched in every mode. The
+// internal delay-line / LFO / shifter state still advances, fed from the
+// current input, so re-enabling Double mid-stream doesn't start from stale or
+// discontinuous state - this is what keeps Double == 0% part of the plugin's
+// null test.
 class Doubler
 {
 public:
+    enum class Mode
+    {
+        classic = 0,
+        micro = 1,
+        shift = 2
+    };
+
     Doubler() = default;
 
-    // Allocates the delay lines. Must be called before the first process()
-    // call, and again whenever sample rate/block size change.
+    // Allocates the delay lines, shifters and scratch buffers. Must be called
+    // before the first process() call, and again whenever sample rate/block
+    // size change.
     void prepare (const juce::dsp::ProcessSpec& spec);
 
-    // Clears delay-line and LFO state without deallocating.
+    // Clears delay-line, LFO, shifter and humaniser state without
+    // deallocating.
     void reset();
 
     // Amount, 0-100%: gain of the four doubled voices added on top of the
@@ -40,8 +75,9 @@ public:
     // bypass.
     void setAmountProportion (float newAmount01);
 
-    // Detune depth in cents: the peak instantaneous pitch deviation each
-    // voice's modulated delay produces.
+    // Detune depth in cents. In Classic mode this is the peak instantaneous
+    // pitch deviation the modulated delay produces; in Micro and Shift it is
+    // a constant offset, distributed across the voices by voiceDetuneScalers.
     void setDetuneCents (float newDetuneCents);
 
     // Stereo pan spread, 0-100%: 0% keeps all four voices centered (summed
@@ -49,12 +85,40 @@ public:
     // field at their fixed per-voice pan positions (see voiceConfigs).
     void setWidthProportion (float newWidth01);
 
+    // Doubler engine mode. Changing this while running triggers the 10 ms
+    // fade described above; setting it before prepare()/at reset() takes
+    // effect immediately.
+    void setMode (Mode newMode);
+
+    // Per-voice random-walk drift depth, 0-1. Exactly 0 means exactly no
+    // offset (see VoiceHumanizer.h).
+    void setHumanizeProportion (float newHumanize01);
+
+    // Formant preservation for Shift mode; inert in Classic and Micro.
+    void setFormantPreserveEnabled (bool shouldPreserve);
+
     // Processes `block` in place, adding the doubled voices on top of
     // whatever is already there. Mono buffers get all voices summed
     // (unpanned, width has no audible effect, matching the documented v0.1
     // behaviour). A zero-sample block is a safe no-op. No allocation occurs
     // here.
     void process (juce::dsp::AudioBlock<float>& block) noexcept;
+
+    // Reported latency in samples for the *target* mode: 0 for Classic and
+    // Micro, the STFT engine's analysis+synthesis latency for Shift. The
+    // target rather than the currently active mode, so the host's delay
+    // compensation is already correct by the time the 10 ms mode fade
+    // finishes.
+    int getLatencySamples() const noexcept;
+
+    // Worst-case reported latency for the current configuration, i.e. what
+    // Shift mode would report. SeraphEngine sizes its dry-path compensation
+    // delay from this in prepare(), so no mode change can ever need a longer
+    // delay line than was allocated.
+    int getMaximumLatencySamples() const noexcept;
+
+    // Currently active (post-fade) mode, for tests and metering.
+    Mode getActiveMode() const noexcept { return activeMode; }
 
 private:
     static constexpr int numVoices = 4;
@@ -81,6 +145,10 @@ private:
     // docs/research-notes.md (tight end ~8-12 ms, outer end ~6-25 ms - see
     // docs/design-brief.md ss2.4). LFO rates/phases/pan roles are unchanged
     // (no reference source published exact 4-voice LFO rates).
+    //
+    // In Micro and Shift these base delays keep the same numbers but a
+    // different job: they are per-voice decorrelation offsets (and, in Micro,
+    // the sweep floor) rather than Haas pre-delays - see MicroPitchShifter.h.
     static constexpr std::array<VoiceConfig, numVoices> voiceConfigs { {
         { 9.0f, 0.23f, 0.0, -1.0f },                                     // outer left
         { 24.0f, 0.31f, juce::MathConstants<double>::pi, 1.0f },         // outer right
@@ -88,8 +156,25 @@ private:
         { 19.0f, 0.37f, juce::MathConstants<double>::pi * 1.5, 1.0f / 3.0f } // inner right
     } };
 
+    // How the Detune knob's cents are distributed across voices in Micro and
+    // Shift mode (brief ss3.1). The outer pair takes the full interval either
+    // side; the inner pair is deliberately asymmetric (-0.45/+0.55 rather
+    // than -0.5/+0.5) so the four voices never settle into a coherent beating
+    // relationship. Follows the H3000 MicroPitch -9/+11 cent lineage.
+    static constexpr std::array<float, numVoices> voiceDetuneScalers { { -1.0f, 1.0f, -0.45f, 0.55f } };
+
     static constexpr float maxDetuneCents = 50.0f;
     static constexpr double smoothingTimeSeconds = 0.05;
+    static constexpr double modeFadeSeconds = 0.010;
+
+    enum class FadeState
+    {
+        idle,
+        fadingOut,
+        fadingIn
+    };
+
+    void resetActiveModeState();
 
     double sampleRate = 44100.0;
 
@@ -101,15 +186,49 @@ private:
     // capacity is never relied upon.
     std::array<juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear>, numVoices> delayLines;
 
+    // Micro/Shift engines and the Shift path's per-voice base pre-delay.
+    std::array<MicroPitchShifter, numVoices> microShifters;
+    std::array<SpectralShifter, numVoices> spectralShifters;
+    std::array<juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear>, numVoices> shiftPreDelays;
+    std::array<VoiceHumanizer, numVoices> humanizers;
+
+    // Keeps the signal the voices are added onto aligned with the voices
+    // themselves. In Shift mode the STFT engine delays each voice by its
+    // analysis+synthesis latency, but the main path does not pass through it;
+    // without this delay the plugin would emit audio ahead of the latency it
+    // reports. Zero - and bit-exact - in Classic and Micro.
+    AlignmentDelay mainPathDelay;
+
+    // Scratch, sized in prepare(): the mono sum, and one buffer per voice.
+    // Classic and Micro could work sample by sample in place, but Shift
+    // cannot - the STFT engine needs a contiguous run of samples - so all
+    // three modes share the same two-pass shape. Building the mono sum up
+    // front is bit-identical to v0.2.0's interleaved version because the
+    // doubler only ever *adds* to the buffer, never reads a sample it has
+    // already written.
+    std::vector<float> monoScratch;
+    std::array<std::vector<float>, numVoices> voiceScratch;
+
     std::array<double, numVoices> phases {};
 
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> amountSmoothed;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> detuneSmoothed;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> widthSmoothed;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> humanizeSmoothed;
 
     float lastAmount01 = 0.25f;
     float lastDetuneCents = 10.0f; // v0.2.0 default (was 15), see ParameterLayout.cpp
     float lastWidth01 = 1.0f;
+    float lastHumanize01 = 0.0f;
+
+    Mode activeMode = Mode::classic;
+    Mode targetMode = Mode::classic;
+    FadeState fadeState = FadeState::idle;
+    float fadeGain = 1.0f;
+    float fadeIncrement = 1.0f;
+    bool prepared = false;
+
+    bool formantPreserve = true;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Doubler)
 };

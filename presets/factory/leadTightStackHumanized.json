@@ -1,0 +1,28 @@
+{
+    "format": "basilica-preset-1",
+    "plugin": "com.yvesvogl.seraph",
+    "pluginVersion": "0.3.0",
+    "name": "Lead - Tight Stack",
+    "category": "Vocals",
+    "parameters": {
+        "deEss": 45.0,
+        "deEssFreq": 7500.0,
+        "deEssWidth": 50.0,
+        "deEssListen": 0.0,
+        "air": 2.5,
+        "comp": 40.0,
+        "double": 40.0,
+        "doubleDetune": 7.0,
+        "doubleWidth": 70.0,
+        "mix": 100.0,
+        "output": 0.0,
+        "doubleMode": 1.0,
+        "doubleHumanize": 25.0,
+        "doubleFormant": 1.0,
+        "deEssLink": 1.0,
+        "deEssKnee": 6.0,
+        "deEssLookahead": 1.0,
+        "airFreq": 1.0,
+        "compLink": 1.0
+    }
+}

@@ -7,6 +7,102 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-27
+
+The doubler stops faking it. v0.1/v0.2 detuned by wobbling a delay line, which
+is click-free but means a stacked voice is never actually in tune - it drifts
+around the note. v0.3.0 adds two engines that hold a constant interval, plus
+per-voice humanisation so a stack decorrelates the way real singers do instead
+of tracking clock-locked LFOs. The de-esser gains the three controls that
+separate a utility de-esser from a mix-grade one.
+
+Every existing session and preset loads and renders **bit-identically** -
+verified by a null test at 44.1/48/96 kHz and block sizes 64 and 1024, and by
+re-measuring the v0.2.0 default render's hash after every commit in this
+release.
+
+### Added
+
+- **Doubler engine modes** (`Double Mode`, default Classic). **Classic** is the
+  shipped v0.1/v0.2 modulated-delay chorus, unchanged byte for byte.
+  **Micro** is a constant-offset dual-head micropitch shifter with cubic
+  Catmull-Rom interpolation - a real fixed detune, so a stack holds its
+  interval; measured accurate to 0.02 cents at +/-30 cents. **Shift** is an
+  STFT pitch shifter with optional formant preservation, and the only mode
+  that reports host latency. Closes the formant-preserving detune work
+  deferred from M1.
+- **Humanize** (0-100%, default 0%): three slow seeded random walks per voice
+  drifting timing (+/-10 ms), pitch (+/-3 cents) and level (+/-1.5 dB). Runs
+  on a fixed control clock, so the drift is independent of the host's block
+  size and two renders from the same reset state are bit-identical. At 0% every
+  offset is exactly zero.
+- **Formant Preserve** (default on, active only in Shift mode): holds the
+  vowel's spectral envelope in place while the partials move, so a shifted
+  voice keeps its character instead of sounding transposed.
+- **De-Ess Link** (default off): one shared gain driven by the louder channel,
+  so a hard-panned ess cannot pull the stereo image sideways.
+- **De-Ess Knee** (0-12 dB, default 0): quadratic soft knee around the
+  threshold. At 0 the v0.2.0 hard-knee expression is evaluated verbatim.
+- **De-Ess Lookahead** (0-2 ms, default 0): the gain reaches its target before
+  the ess arrives rather than chasing it, removing the onset overshoot a 1 ms
+  attack otherwise lets through. Adds exactly `round(ms * sr / 1000)` samples
+  of reported latency.
+- **Comp Link** (default off): one shared envelope, including the
+  program-dependent auto-release, driven by the louder channel.
+- **Air Freq** (10/12/15 kHz, default 12 kHz - the fixed constant v0.1/v0.2
+  always used, hence neutral).
+- **Three factory presets** for the new engines: "Choir - Sacred Shift",
+  "Doubler - Vintage Micro" and "Lead - Tight Stack" (twelve in total, see
+  `docs/presets.md`).
+- **State schema versioning**: saved state now carries `stateVersion = 2`.
+  States without the attribute are version 1 and need no rewriting, because
+  every parameter added here defaults to the value that reproduces v0.2.0.
+- `tests/DetuneTests.cpp` and substantial additions across the suite: pitch
+  accuracy in cents, formant placement, crossfade and STFT artifact levels,
+  comb ripple, latency measured by click arrival, de-esser knee curves,
+  lookahead alignment, allocation guards over Shift mode including live mode
+  switches, and a Release-mode CPU measurement. 109 test cases in total.
+
+### Changed
+
+- **Latency is no longer unconditionally zero.** Classic and Micro still
+  report 0, and the default configuration is unchanged. Shift mode reports
+  1440 samples (30.0 ms at 48 kHz) and De-Ess Lookahead reports its own
+  length; the two add. Both parameters that can change it are marked
+  non-automatable, so a host only ever sees a latency change as a deliberate
+  user action. The doubler's main path is delayed to match, and the dry signal
+  used for the Mix crossfade runs through a compensation delay of the same
+  length, so the plugin's output really does arrive where it says it will -
+  measured to within one sample.
+- **Smoothed parameters now advance in 32-sample slices** instead of once per
+  host block, so fast automation no longer produces a block-sized staircase.
+  At static settings the sliced path is bit-identical to the old one. The Air
+  shelf's coefficient recompute deliberately stays at block rate.
+- The editor grows from two rows of controls to four to fit the eight new
+  parameters, using the same generic knob/toggle/combo grid. The photoreal GUI
+  remains a later milestone.
+- The nine existing factory presets gained the eight new keys at their neutral
+  values and a bumped `pluginVersion`; a test confirms none of them changed
+  sonically.
+
+### Fixed
+
+- **Non-finite input can no longer permanently poison Shift mode.** A phase
+  vocoder's per-bin phase accumulators latch NaN, and measurement showed the
+  vendored engine does not recover even from its own `reset()`. The wrapper
+  now substitutes silence for non-finite input before the engine sees it.
+
+### Third-party
+
+- Adds **Signalsmith Stretch** (MIT, Geraint Luff / Signalsmith Audio Ltd.)
+  as the Shift mode's STFT engine, with its **Signalsmith Linear** FFT backend
+  (MIT). Both are MIT and therefore compatible with this project's AGPLv3;
+  full copyright and permission notices are reproduced in the new
+  `THIRD-PARTY-NOTICES.md`. Stretch is pinned to a development-head commit
+  rather than the newest release tag, because the formant API this release
+  depends on has not been tagged yet - the pin is a full commit SHA, so the
+  resolved source is exact.
+
 ## [0.2.0] - 2026-07-16
 
 ### Added

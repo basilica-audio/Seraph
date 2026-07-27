@@ -167,6 +167,87 @@ namespace srph
             0.0f,
             juce::AudioParameterFloatAttributes().withLabel ("dB")));
 
+        //======================================================================
+        // v0.3.0 additions (SOTA DSP brief ss4). Deliberately appended after
+        // the frozen v0.1/v0.2 block rather than interleaved in signal-flow
+        // order: APVTS persists by ID, but hosts that address parameters by
+        // *index* (some AU/VST3 automation lanes do) would otherwise see every
+        // existing parameter shift, silently re-pointing saved automation.
+        //
+        // Every default below reproduces v0.2.0 behaviour exactly.
+
+        //======================================================================
+        // DoubleMode: Classic (v0.2.0's modulated-delay chorus) / Micro
+        // (dual-head constant-ratio micropitch) / Shift (STFT pitch shift).
+        // Not automatable: Shift reports host latency, and a latency change
+        // mid-automation is exactly the thing hosts cope with worst.
+        layout.add (std::make_unique<juce::AudioParameterChoice> (
+            juce::ParameterID { ParamIDs::doubleMode, 1 },
+            "Double Mode",
+            juce::StringArray { "Classic", "Micro", "Shift" },
+            0,
+            juce::AudioParameterChoiceAttributes().withAutomatable (false)));
+
+        //======================================================================
+        // DoubleHumanize: per-voice random-walk drift depth, 0-100%, default
+        // 0% (all three offsets exactly zero -> Classic stays bit-identical).
+        layout.add (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID { ParamIDs::doubleHumanize, 1 },
+            "Humanize",
+            juce::NormalisableRange<float> (0.0f, 100.0f, 0.1f),
+            0.0f,
+            juce::AudioParameterFloatAttributes().withLabel ("%")));
+
+        //======================================================================
+        // DoubleFormant: formant preservation in Shift mode, default on.
+        // Inert in Classic/Micro, so "on" is still neutral for old sessions.
+        layout.add (std::make_unique<juce::AudioParameterBool> (
+            juce::ParameterID { ParamIDs::doubleFormant, 1 },
+            "Formant Preserve",
+            true));
+
+        //======================================================================
+        // DeEssLink: stereo-linked sibilance detection, default off.
+        layout.add (std::make_unique<juce::AudioParameterBool> (
+            juce::ParameterID { ParamIDs::deEssLink, 1 },
+            "De-Ess Link",
+            false));
+
+        //======================================================================
+        // DeEssKnee: soft-knee width in dB, 0-12, default 0 (hard knee).
+        layout.add (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID { ParamIDs::deEssKnee, 1 },
+            "De-Ess Knee",
+            juce::NormalisableRange<float> (0.0f, 12.0f, 0.1f),
+            0.0f,
+            juce::AudioParameterFloatAttributes().withLabel ("dB")));
+
+        //======================================================================
+        // DeEssLookahead: 0-2 ms, default 0. Not automatable - it changes
+        // reported host latency (see DoubleMode above).
+        layout.add (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID { ParamIDs::deEssLookahead, 1 },
+            "De-Ess Lookahead",
+            juce::NormalisableRange<float> (0.0f, 2.0f, 0.1f),
+            0.0f,
+            juce::AudioParameterFloatAttributes().withLabel ("ms").withAutomatable (false)));
+
+        //======================================================================
+        // AirFreq: high-shelf corner, 10/12/15 kHz, default 12 kHz - the
+        // fixed constant v0.1/v0.2 always used, so index 1 is neutral.
+        layout.add (std::make_unique<juce::AudioParameterChoice> (
+            juce::ParameterID { ParamIDs::airFreq, 1 },
+            "Air Freq",
+            juce::StringArray { "10 kHz", "12 kHz", "15 kHz" },
+            1));
+
+        //======================================================================
+        // CompLink: stereo-linked compressor detection, default off.
+        layout.add (std::make_unique<juce::AudioParameterBool> (
+            juce::ParameterID { ParamIDs::compLink, 1 },
+            "Comp Link",
+            false));
+
         return layout;
     }
 }

@@ -12,7 +12,10 @@ namespace
     constexpr int labelHeight = 20;
     constexpr int margin = 16;
     constexpr int numColumns = 6;
-    constexpr int numRows = 2;
+    // v0.3.0: 19 controls instead of 11, so the same grid grows from two rows
+    // to four (6 + 6 + 6 + 1) rather than being redesigned.
+    constexpr int numRows = 4;
+    constexpr int comboBoxHeight = 24;
     constexpr int presetBarHeight = 28;
     constexpr int editorWidth = margin * 2 + numColumns * knobSize + (numColumns - 1) * margin;
     constexpr int editorHeight = margin * 3 + presetBarHeight + numRows * (labelHeight + knobSize + textBoxHeight) + margin;
@@ -52,10 +55,17 @@ SeraphAudioProcessorEditor::SeraphAudioProcessorEditor (SeraphAudioProcessor& pr
     configureKnob (doubleWidthKnob, ParamIDs::doubleWidth, "Width");
     configureKnob (mixKnob, ParamIDs::mix, "Mix");
     configureKnob (outputKnob, ParamIDs::output, "Output");
+    configureKnob (deEssKneeKnob, ParamIDs::deEssKnee, "Knee");
+    configureKnob (deEssLookaheadKnob, ParamIDs::deEssLookahead, "Lookahead");
+    configureKnob (doubleHumanizeKnob, ParamIDs::doubleHumanize, "Humanize");
 
-    deEssListenButton.setButtonText ("Listen");
-    addAndMakeVisible (deEssListenButton);
-    deEssListenAttachment = std::make_unique<ButtonAttachment> (audioProcessor.apvts, ParamIDs::deEssListen, deEssListenButton);
+    configureChooser (doubleModeChooser, ParamIDs::doubleMode, "Mode");
+    configureChooser (airFreqChooser, ParamIDs::airFreq, "Air Freq");
+
+    configureToggle (deEssListenButton, deEssListenAttachment, ParamIDs::deEssListen, "Listen");
+    configureToggle (deEssLinkButton, deEssLinkAttachment, ParamIDs::deEssLink, "DS Link");
+    configureToggle (compLinkButton, compLinkAttachment, ParamIDs::compLink, "Comp Link");
+    configureToggle (doubleFormantButton, doubleFormantAttachment, ParamIDs::doubleFormant, "Formant");
 
     setResizable (false, false);
     setSize (editorWidth, editorHeight);
@@ -80,6 +90,40 @@ void SeraphAudioProcessorEditor::configureKnob (Knob& knob, const juce::String& 
     knob.attachment = std::make_unique<SliderAttachment> (audioProcessor.apvts, parameterId, knob.slider);
 }
 
+void SeraphAudioProcessorEditor::configureChooser (Chooser& chooser, const juce::String& parameterId, const juce::String& labelText)
+{
+    // ComboBoxAttachment binds an existing item list to the parameter - it
+    // does NOT populate the box. Reading the choices off the parameter itself
+    // keeps the two in sync automatically, with item IDs 1..N because JUCE
+    // treats item ID 0 as "nothing selected".
+    if (auto* parameter = dynamic_cast<juce::AudioParameterChoice*> (audioProcessor.apvts.getParameter (parameterId)))
+    {
+        const auto& choices = parameter->choices;
+
+        for (int index = 0; index < choices.size(); ++index)
+            chooser.comboBox.addItem (choices[index], index + 1);
+    }
+
+    addAndMakeVisible (chooser.comboBox);
+
+    chooser.label.setText (labelText, juce::dontSendNotification);
+    chooser.label.setJustificationType (juce::Justification::centred);
+    chooser.label.attachToComponent (&chooser.comboBox, false);
+    addAndMakeVisible (chooser.label);
+
+    chooser.attachment = std::make_unique<ComboBoxAttachment> (audioProcessor.apvts, parameterId, chooser.comboBox);
+}
+
+void SeraphAudioProcessorEditor::configureToggle (juce::ToggleButton& button,
+                                                  std::unique_ptr<ButtonAttachment>& attachment,
+                                                  const juce::String& parameterId,
+                                                  const juce::String& buttonText)
+{
+    button.setButtonText (buttonText);
+    addAndMakeVisible (button);
+    attachment = std::make_unique<ButtonAttachment> (audioProcessor.apvts, parameterId, button);
+}
+
 void SeraphAudioProcessorEditor::resized()
 {
     auto bounds = getLocalBounds().reduced (margin);
@@ -88,22 +132,67 @@ void SeraphAudioProcessorEditor::resized()
     bounds.removeFromTop (margin);
 
     const auto rowHeight = bounds.getHeight() / numRows;
-    auto topRow = bounds.removeFromTop (rowHeight);
-    auto bottomRow = bounds;
 
-    topRow.removeFromTop (labelHeight); // room for the attached labels above each knob
-    bottomRow.removeFromTop (labelHeight);
+    // Each row is laid out the same way: strip off the space the attached
+    // labels occupy, then hand out equal-width slots left to right.
+    auto makeRow = [&bounds, rowHeight]
+    {
+        auto row = bounds.removeFromTop (rowHeight);
+        row.removeFromTop (labelHeight); // room for the attached labels above each control
+        return row;
+    };
 
-    const auto slotWidth = topRow.getWidth() / numColumns;
+    auto placeKnob = [] (juce::Rectangle<int>& row, int slotWidth, Knob& knob)
+    {
+        knob.slider.setBounds (row.removeFromLeft (slotWidth).reduced (margin / 2, 0));
+    };
 
-    for (auto* knob : { &deEssKnob, &deEssFreqKnob, &deEssWidthKnob })
-        knob->slider.setBounds (topRow.removeFromLeft (slotWidth).reduced (margin / 2, 0));
+    // Toggles and combo boxes are much shorter than a knob, so they are
+    // centred vertically inside their slot rather than stretched to fill it.
+    auto placeCentred = [] (juce::Rectangle<int>& row, int slotWidth, juce::Component& component, int height)
+    {
+        auto slot = row.removeFromLeft (slotWidth).reduced (margin / 2, 0);
+        component.setBounds (slot.withSizeKeepingCentre (slot.getWidth(), height));
+    };
 
-    deEssListenButton.setBounds (topRow.removeFromLeft (slotWidth).reduced (margin / 2, knobSize / 2 - textBoxHeight / 2));
+    const auto slotWidth = bounds.getWidth() / numColumns;
 
-    for (auto* knob : { &airKnob, &compKnob })
-        knob->slider.setBounds (topRow.removeFromLeft (slotWidth).reduced (margin / 2, 0));
+    // Row 1 - de-esser.
+    {
+        auto row = makeRow();
+        placeKnob (row, slotWidth, deEssKnob);
+        placeKnob (row, slotWidth, deEssFreqKnob);
+        placeKnob (row, slotWidth, deEssWidthKnob);
+        placeKnob (row, slotWidth, deEssKneeKnob);
+        placeKnob (row, slotWidth, deEssLookaheadKnob);
+        placeCentred (row, slotWidth, deEssListenButton, textBoxHeight);
+    }
 
-    for (auto* knob : { &doubleKnob, &doubleDetuneKnob, &doubleWidthKnob, &mixKnob, &outputKnob })
-        knob->slider.setBounds (bottomRow.removeFromLeft (slotWidth).reduced (margin / 2, 0));
+    // Row 2 - de-esser link, tone and dynamics.
+    {
+        auto row = makeRow();
+        placeCentred (row, slotWidth, deEssLinkButton, textBoxHeight);
+        placeKnob (row, slotWidth, airKnob);
+        placeCentred (row, slotWidth, airFreqChooser.comboBox, comboBoxHeight);
+        placeKnob (row, slotWidth, compKnob);
+        placeCentred (row, slotWidth, compLinkButton, textBoxHeight);
+        placeKnob (row, slotWidth, mixKnob);
+    }
+
+    // Row 3 - doubler.
+    {
+        auto row = makeRow();
+        placeCentred (row, slotWidth, doubleModeChooser.comboBox, comboBoxHeight);
+        placeKnob (row, slotWidth, doubleKnob);
+        placeKnob (row, slotWidth, doubleDetuneKnob);
+        placeKnob (row, slotWidth, doubleWidthKnob);
+        placeKnob (row, slotWidth, doubleHumanizeKnob);
+        placeCentred (row, slotWidth, doubleFormantButton, textBoxHeight);
+    }
+
+    // Row 4 - output.
+    {
+        auto row = makeRow();
+        placeKnob (row, slotWidth, outputKnob);
+    }
 }

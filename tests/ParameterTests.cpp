@@ -67,16 +67,48 @@ TEST_CASE ("Processor instantiates with the expected parameters", "[processor][p
             ParamIDs::doubleWidth,
             ParamIDs::mix,
             ParamIDs::output,
+            ParamIDs::doubleMode,
+            ParamIDs::doubleHumanize,
+            ParamIDs::doubleFormant,
+            ParamIDs::deEssLink,
+            ParamIDs::deEssKnee,
+            ParamIDs::deEssLookahead,
+            ParamIDs::airFreq,
+            ParamIDs::compLink,
         };
 
         for (const auto* id : allIds)
             CHECK (apvts.getParameter (id) != nullptr);
     }
 
-    SECTION ("total parameter count matches the v0.2.0 layout")
+    SECTION ("total parameter count matches the v0.3.0 layout")
     {
-        // v0.1.0 had 10; v0.2.0 adds DeEssWidth (docs/design-brief.md ss2.1).
-        CHECK (apvts.processor.getParameters().size() == 11);
+        // v0.1.0 had 10; v0.2.0 adds DeEssWidth (docs/design-brief.md ss2.1);
+        // v0.3.0 adds the eight SOTA parameters (brief ss4).
+        CHECK (apvts.processor.getParameters().size() == 19);
+    }
+
+    SECTION ("v0.3.0 parameters are appended after the frozen v0.2.0 block")
+    {
+        // Host automation lanes that address parameters by index must keep
+        // pointing at the same parameter across the upgrade, so the eleven
+        // pre-existing parameters have to retain indices 0-10.
+        const auto& parameters = apvts.processor.getParameters();
+        REQUIRE (parameters.size() == 19);
+
+        static constexpr const char* frozenOrder[] = {
+            ParamIDs::deEss,        ParamIDs::deEssFreq,   ParamIDs::deEssListen,
+            ParamIDs::deEssWidth,   ParamIDs::air,         ParamIDs::comp,
+            ParamIDs::doubleAmount, ParamIDs::doubleDetune, ParamIDs::doubleWidth,
+            ParamIDs::mix,          ParamIDs::output,
+        };
+
+        for (int index = 0; index < 11; ++index)
+        {
+            auto* withId = dynamic_cast<juce::AudioProcessorParameterWithID*> (parameters[index]);
+            REQUIRE (withId != nullptr);
+            CHECK (withId->paramID == juce::String (frozenOrder[index]));
+        }
     }
 
     SECTION ("DeEssListen: sibilance-listen toggle defaults off")
@@ -159,5 +191,74 @@ TEST_CASE ("Processor instantiates with the expected parameters", "[processor][p
     {
         checkFloatDefault (apvts, ParamIDs::output, 0.0f);
         checkFloatRange (apvts, ParamIDs::output, -24.0f, 24.0f);
+    }
+
+    //==========================================================================
+    // v0.3.0 parameters (SOTA DSP brief ss4, test plan ss6 item on parameter
+    // existence/ranges/defaults/automatable flags). Every default asserted
+    // here is the value that reproduces v0.2.0 behaviour exactly - that is
+    // the whole reason old sessions render bit-identical (tests/EngineTests
+    // "v0.2.0 compatibility").
+
+    SECTION ("DoubleMode: three modes, defaults to Classic, not automatable")
+    {
+        auto* param = dynamic_cast<juce::AudioParameterChoice*> (apvts.getParameter (ParamIDs::doubleMode));
+        REQUIRE (param != nullptr);
+        CHECK (param->choices == juce::StringArray { "Classic", "Micro", "Shift" });
+        CHECK (param->getIndex() == 0);
+        // Changing the mode changes reported host latency, so the parameter
+        // must not be exposed as an automation target (brief ss3.3).
+        CHECK (param->isAutomatable() == false);
+    }
+
+    SECTION ("DoubleHumanize: defaults to 0% (exactly neutral) with a 0-100% range")
+    {
+        checkFloatDefault (apvts, ParamIDs::doubleHumanize, 0.0f);
+        checkFloatRange (apvts, ParamIDs::doubleHumanize, 0.0f, 100.0f);
+        CHECK (requireParam (apvts, ParamIDs::doubleHumanize)->isAutomatable() == true);
+    }
+
+    SECTION ("DoubleFormant: formant preservation defaults on (inert outside Shift mode)")
+    {
+        auto* param = dynamic_cast<juce::AudioParameterBool*> (apvts.getParameter (ParamIDs::doubleFormant));
+        REQUIRE (param != nullptr);
+        CHECK (param->get() == true);
+    }
+
+    SECTION ("DeEssLink: stereo link defaults off")
+    {
+        auto* param = dynamic_cast<juce::AudioParameterBool*> (apvts.getParameter (ParamIDs::deEssLink));
+        REQUIRE (param != nullptr);
+        CHECK (param->get() == false);
+    }
+
+    SECTION ("DeEssKnee: defaults to 0 dB (hard knee) with a 0-12 dB range")
+    {
+        checkFloatDefault (apvts, ParamIDs::deEssKnee, 0.0f);
+        checkFloatRange (apvts, ParamIDs::deEssKnee, 0.0f, 12.0f);
+    }
+
+    SECTION ("DeEssLookahead: defaults to 0 ms, 0-2 ms range, not automatable")
+    {
+        checkFloatDefault (apvts, ParamIDs::deEssLookahead, 0.0f);
+        checkFloatRange (apvts, ParamIDs::deEssLookahead, 0.0f, 2.0f);
+        // Adds reported host latency, same reasoning as DoubleMode.
+        CHECK (requireParam (apvts, ParamIDs::deEssLookahead)->isAutomatable() == false);
+    }
+
+    SECTION ("AirFreq: three corners, defaults to 12 kHz (v0.2.0's fixed constant)")
+    {
+        auto* param = dynamic_cast<juce::AudioParameterChoice*> (apvts.getParameter (ParamIDs::airFreq));
+        REQUIRE (param != nullptr);
+        CHECK (param->choices == juce::StringArray { "10 kHz", "12 kHz", "15 kHz" });
+        CHECK (param->getIndex() == 1);
+        CHECK (param->isAutomatable() == true);
+    }
+
+    SECTION ("CompLink: stereo link defaults off")
+    {
+        auto* param = dynamic_cast<juce::AudioParameterBool*> (apvts.getParameter (ParamIDs::compLink));
+        REQUIRE (param != nullptr);
+        CHECK (param->get() == false);
     }
 }

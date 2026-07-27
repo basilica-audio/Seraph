@@ -167,3 +167,171 @@ TEST_CASE ("setStateInformation tolerantly imports a v0.1.0-shaped state missing
     checkParam (ParamIDs::mix, 42.0f);
     checkParam (ParamIDs::output, 6.5f);
 }
+
+//==============================================================================
+// v0.3.0 state schema (SOTA DSP brief ss4, test plan ss6.15).
+
+TEST_CASE ("getStateInformation stamps schema version 2 on the APVTS root", "[state][schema]")
+{
+    SeraphAudioProcessor processor;
+    processor.prepareToPlay (48000.0, 512);
+
+    juce::MemoryBlock savedState;
+    processor.getStateInformation (savedState);
+    REQUIRE (savedState.getSize() > 0);
+
+    const std::unique_ptr<juce::XmlElement> xml (
+        juce::AudioProcessor::getXmlFromBinary (savedState.getData(), static_cast<int> (savedState.getSize())));
+    REQUIRE (xml != nullptr);
+
+    const auto state = juce::ValueTree::fromXml (*xml);
+    CHECK (state.hasProperty (SeraphAudioProcessor::stateVersionProperty));
+    CHECK (SeraphAudioProcessor::readStateSchemaVersion (state) == SeraphAudioProcessor::stateSchemaVersion);
+    CHECK (SeraphAudioProcessor::stateSchemaVersion == 2);
+}
+
+TEST_CASE ("A state tree without the version attribute reads as schema version 1", "[state][schema][migration]")
+{
+    // This is exactly the shape every v0.1.x/v0.2.0 session carries.
+    const juce::ValueTree legacyState ("PARAMETERS");
+    CHECK (SeraphAudioProcessor::readStateSchemaVersion (legacyState) == 1);
+}
+
+TEST_CASE ("State round-trip is exact for all 19 parameters", "[state][schema]")
+{
+    SeraphAudioProcessor processor;
+    processor.prepareToPlay (48000.0, 512);
+
+    const auto& parameters = processor.apvts.processor.getParameters();
+    REQUIRE (parameters.size() == 19);
+
+    // Drive every parameter to a non-default position.
+    //
+    // Discrete parameters (the bools and the two choices) need a value that
+    // is already snapped to a legal step: APVTS persists each parameter's
+    // *denormalised* value, and NormalisableRange::convertFrom0to1() snaps to
+    // the interval on the way out, so an arbitrary normalised position like
+    // 0.37 would come back as 0.0 for a bool and make this test assert
+    // quantisation noise instead of round-trip fidelity. Continuous
+    // parameters get an arbitrary off-default position.
+    std::vector<float> expected;
+    expected.reserve (static_cast<size_t> (parameters.size()));
+
+    for (int index = 0; index < parameters.size(); ++index)
+    {
+        auto* parameter = parameters[index];
+        const auto steps = parameter->getNumSteps();
+        const bool isDiscrete = steps > 1 && steps <= 64;
+
+        // For discrete parameters pick whichever end of the range is not the
+        // default, so the restore below still has something to prove.
+        const auto target = isDiscrete
+                              ? (std::abs (parameter->getDefaultValue() - 1.0f) > 1.0e-6f ? 1.0f : 0.0f)
+                              : ((index % 2 == 0) ? 0.37f : 0.63f);
+
+        parameter->setValueNotifyingHost (target);
+        expected.push_back (parameter->getValue());
+
+        INFO ("parameter index " << index);
+        CHECK (parameter->getValue() != Catch::Approx (parameter->getDefaultValue()).margin (1e-6));
+    }
+
+    juce::MemoryBlock savedState;
+    processor.getStateInformation (savedState);
+
+    for (auto* parameter : parameters)
+        parameter->setValueNotifyingHost (parameter->getDefaultValue());
+
+    processor.setStateInformation (savedState.getData(), static_cast<int> (savedState.getSize()));
+
+    for (int index = 0; index < parameters.size(); ++index)
+    {
+        INFO ("parameter index " << index << " ("
+                                 << dynamic_cast<juce::AudioProcessorParameterWithID*> (parameters[index])->paramID << ")");
+        // 1e-5 rather than exact equality: the log-frequency and power-taper
+        // ranges make a round-trip through float storage in real units, so a
+        // last-bit difference in the normalised position is expected there.
+        CHECK (parameters[index]->getValue() == Catch::Approx (expected[static_cast<size_t> (index)]).margin (1e-5));
+    }
+}
+
+// Brief ss4/ss6.15: a v0.2.0-shaped state (eleven parameters, no stateVersion
+// attribute, none of the eight v0.3.0 IDs) must import with all eleven carried
+// values exact and all eight new parameters sitting on their neutral defaults
+// - that is what makes an upgraded session render bit-identical (the render
+// side of the same contract is pinned in tests/EngineTests.cpp).
+TEST_CASE ("A v0.2.0-shaped state migrates to 8 neutral defaults and 11 exact values", "[state][schema][migration]")
+{
+    SeraphAudioProcessor processor;
+    processor.prepareToPlay (48000.0, 512);
+
+    juce::ValueTree oldState ("PARAMETERS");
+
+    auto addParam = [&oldState] (const char* id, float value)
+    {
+        juce::ValueTree param ("PARAM");
+        param.setProperty ("id", id, nullptr);
+        param.setProperty ("value", value, nullptr);
+        oldState.appendChild (param, nullptr);
+    };
+
+    addParam (ParamIDs::deEss, 61.0f);
+    addParam (ParamIDs::deEssFreq, 6400.0f);
+    addParam (ParamIDs::deEssWidth, 55.0f);
+    addParam (ParamIDs::deEssListen, 0.0f);
+    addParam (ParamIDs::air, 4.25f);
+    addParam (ParamIDs::comp, 45.0f);
+    addParam (ParamIDs::doubleAmount, 70.0f);
+    addParam (ParamIDs::doubleDetune, 22.0f);
+    addParam (ParamIDs::doubleWidth, 85.0f);
+    addParam (ParamIDs::mix, 90.0f);
+    addParam (ParamIDs::output, -1.5f);
+    // No stateVersion attribute and none of the v0.3.0 IDs - the point.
+
+    CHECK (SeraphAudioProcessor::readStateSchemaVersion (oldState) == 1);
+
+    const std::unique_ptr<juce::XmlElement> xml (oldState.createXml());
+    juce::MemoryBlock oldStateBinary;
+    juce::AudioProcessor::copyXmlToBinary (*xml, oldStateBinary);
+
+    // Move the new parameters off their defaults first, so "lands on the
+    // default" below cannot pass just because nothing ever touched them.
+    auto* humanize = processor.apvts.getParameter (ParamIDs::doubleHumanize);
+    auto* knee = processor.apvts.getParameter (ParamIDs::deEssKnee);
+    REQUIRE (humanize != nullptr);
+    REQUIRE (knee != nullptr);
+    humanize->setValueNotifyingHost (0.8f);
+    knee->setValueNotifyingHost (0.8f);
+
+    processor.setStateInformation (oldStateBinary.getData(), static_cast<int> (oldStateBinary.getSize()));
+
+    auto realValue = [&processor] (const char* id)
+    {
+        auto* param = processor.apvts.getParameter (id);
+        REQUIRE (param != nullptr);
+        return param->convertFrom0to1 (param->getValue());
+    };
+
+    // The eleven carried parameters: exact.
+    CHECK (realValue (ParamIDs::deEss) == Catch::Approx (61.0f).margin (1e-3));
+    CHECK (realValue (ParamIDs::deEssFreq) == Catch::Approx (6400.0f).margin (1e-1));
+    CHECK (realValue (ParamIDs::deEssWidth) == Catch::Approx (55.0f).margin (1e-3));
+    CHECK (realValue (ParamIDs::deEssListen) == Catch::Approx (0.0f).margin (1e-3));
+    CHECK (realValue (ParamIDs::air) == Catch::Approx (4.25f).margin (1e-3));
+    CHECK (realValue (ParamIDs::comp) == Catch::Approx (45.0f).margin (1e-3));
+    CHECK (realValue (ParamIDs::doubleAmount) == Catch::Approx (70.0f).margin (1e-3));
+    CHECK (realValue (ParamIDs::doubleDetune) == Catch::Approx (22.0f).margin (1e-3));
+    CHECK (realValue (ParamIDs::doubleWidth) == Catch::Approx (85.0f).margin (1e-3));
+    CHECK (realValue (ParamIDs::mix) == Catch::Approx (90.0f).margin (1e-3));
+    CHECK (realValue (ParamIDs::output) == Catch::Approx (-1.5f).margin (1e-3));
+
+    // The eight new parameters: neutral defaults, i.e. v0.2.0 behaviour.
+    CHECK (realValue (ParamIDs::doubleMode) == Catch::Approx (0.0f).margin (1e-3));      // Classic
+    CHECK (realValue (ParamIDs::doubleHumanize) == Catch::Approx (0.0f).margin (1e-3));
+    CHECK (realValue (ParamIDs::doubleFormant) == Catch::Approx (1.0f).margin (1e-3));   // inert outside Shift
+    CHECK (realValue (ParamIDs::deEssLink) == Catch::Approx (0.0f).margin (1e-3));
+    CHECK (realValue (ParamIDs::deEssKnee) == Catch::Approx (0.0f).margin (1e-3));
+    CHECK (realValue (ParamIDs::deEssLookahead) == Catch::Approx (0.0f).margin (1e-3));
+    CHECK (realValue (ParamIDs::airFreq) == Catch::Approx (1.0f).margin (1e-3));         // 12 kHz
+    CHECK (realValue (ParamIDs::compLink) == Catch::Approx (0.0f).margin (1e-3));
+}

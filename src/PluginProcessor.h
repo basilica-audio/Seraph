@@ -50,6 +50,17 @@ public:
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
+    //==============================================================================
+    // State schema versioning (v0.3.0, SOTA DSP brief ss4). getStateInformation()
+    // stamps `stateVersionProperty` = stateSchemaVersion onto the APVTS root.
+    // States written by v0.1.x/v0.2.0 carry no such attribute and are treated as
+    // version 1 - see readStateSchemaVersion() and setStateInformation().
+    static constexpr int stateSchemaVersion = 2;
+    static inline const juce::Identifier stateVersionProperty { "stateVersion" };
+
+    // Schema version of an APVTS state tree; 1 when the attribute is absent.
+    static int readStateSchemaVersion (const juce::ValueTree& state) noexcept;
+
     juce::AudioProcessorValueTreeState apvts;
 
     // M2 preset system (.scaffold/specs/preset-system-m2.md,
@@ -77,6 +88,27 @@ private:
     std::atomic<float>* doubleWidth = nullptr;
     std::atomic<float>* mixPercent = nullptr;
     std::atomic<float>* outputDb = nullptr;
+    std::atomic<float>* doubleMode = nullptr;
+    std::atomic<float>* doubleHumanize = nullptr;
+    std::atomic<float>* doubleFormant = nullptr;
+    std::atomic<float>* deEssLink = nullptr;
+    std::atomic<float>* deEssKnee = nullptr;
+    std::atomic<float>* deEssLookahead = nullptr;
+    std::atomic<float>* airFreq = nullptr;
+    std::atomic<float>* compLink = nullptr;
+
+    // Pushes the current APVTS values into the engine. Shared by
+    // prepareToPlay() and processBlock() so the two can never drift apart -
+    // a parameter wired into one but not the other would silently ignore its
+    // session value until the first block after a change.
+    void pushParametersToEngine();
+
+    // Last value handed to setLatencySamples(). The doubler's Shift mode and
+    // the de-esser's lookahead both change reported latency, so this is
+    // re-checked every block and reported only on an actual change; both
+    // parameters are non-automatable, so in practice it fires once per
+    // deliberate user action.
+    int lastReportedLatencySamples = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SeraphAudioProcessor)
 };
