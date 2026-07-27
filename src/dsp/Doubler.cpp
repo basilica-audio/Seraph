@@ -45,6 +45,9 @@ void Doubler::prepare (const juce::dsp::ProcessSpec& spec)
 
     monoScratch.assign (static_cast<size_t> (maximumBlockSize), 0.0f);
 
+    mainPathDelay.prepare (spec, getMaximumLatencySamples(), modeFadeSeconds);
+    mainPathDelay.setDelaySamples (getLatencySamples());
+
     amountSmoothed.reset (sampleRate, smoothingTimeSeconds);
     amountSmoothed.setCurrentAndTargetValue (lastAmount01);
     detuneSmoothed.reset (sampleRate, smoothingTimeSeconds);
@@ -77,6 +80,9 @@ void Doubler::reset()
 
     for (auto& humanizer : humanizers)
         humanizer.reset();
+
+    mainPathDelay.setDelaySamples (getLatencySamples());
+    mainPathDelay.reset();
 
     for (size_t voice = 0; voice < static_cast<size_t> (numVoices); ++voice)
         phases[voice] = voiceConfigs[voice].startPhase;
@@ -117,6 +123,7 @@ void Doubler::setMode (Mode newMode)
         return;
 
     targetMode = newMode;
+    mainPathDelay.setDelaySamples (getLatencySamples());
 
     if (! prepared)
     {
@@ -355,6 +362,18 @@ void Doubler::process (juce::dsp::AudioBlock<float>& block) noexcept
             }
         }
     }
+
+    // Align the signal the voices are about to be added onto with the voices
+    // themselves. In Shift mode the STFT engine has already delayed every
+    // voice by its own latency; this puts the main path on the same timebase,
+    // so the plugin's output as a whole arrives exactly where its reported
+    // latency says it will. A no-op, bit-exact, in Classic and Micro.
+    //
+    // Deliberately applied on both sides of the amount == 0 branch: at zero
+    // amount the doubler is a bypass, but in Shift mode it has to be a
+    // *delayed* bypass, or the reported latency would be a lie whenever the
+    // send happened to be down.
+    mainPathDelay.process (block);
 
     if (bypassed)
     {

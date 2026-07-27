@@ -5,6 +5,7 @@
 #include <array>
 #include <vector>
 
+#include "AlignmentDelay.h"
 #include "MicroPitchShifter.h"
 #include "SpectralShifter.h"
 #include "VoiceHumanizer.h"
@@ -190,6 +191,13 @@ private:
     std::array<SpectralShifter, numVoices> spectralShifters;
     std::array<juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear>, numVoices> shiftPreDelays;
     std::array<VoiceHumanizer, numVoices> humanizers;
+
+    // Keeps the signal the voices are added onto aligned with the voices
+    // themselves. In Shift mode the STFT engine delays each voice by its
+    // analysis+synthesis latency, but the main path does not pass through it;
+    // without this delay the plugin would emit audio ahead of the latency it
+    // reports. Zero - and bit-exact - in Classic and Micro.
+    AlignmentDelay mainPathDelay;
 
     // Scratch, sized in prepare(): the mono sum, and one buffer per voice.
     // Classic and Micro could work sample by sample in place, but Shift
