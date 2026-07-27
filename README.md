@@ -18,22 +18,25 @@ See [`docs/manual.md`](docs/manual.md) for the full user manual (signal-flow exp
 
 ## Features
 
-- **De-Ess** - a single-band, zero-latency dynamic EQ that detects sibilance energy around a tunable center frequency (`DeEssFreq`, ~5-9 kHz) with an adjustable detection bandwidth (`DeEssWidth`) and reduces it dynamically, without a lookahead delay. A **Listen** mode solos the detected band for tuning by ear.
-- **Air** - a fixed-frequency (12 kHz) high-shelf with a wide, gentle transition for adding (or removing) openness above the vocal's presence range.
-- **Gentle Compressor** - a single-knob, zero-latency broadband "glue" compressor (`Comp`, 0-100%) with a program-dependent auto-release, scaling threshold and ratio together up to a deliberately gentle 3:1 maximum, sitting after Air and before the Doubler so all doubled voices track a consistent level.
-- **Doubler** - four short, independently modulated-delay voices at fixed per-voice pan positions (a small-choir spread, not a single symmetric L/R pair), slightly detuned (`DoubleDetune`, in cents) and spread across the stereo field (`DoubleWidth`), blended in (`Double`) on top of the centered dry signal - a classic vocal-doubling trick, implemented click-free (continuous delay modulation, never a discrete pitch-shift reset).
+- **De-Ess** - a single-band dynamic EQ that detects sibilance energy around a tunable center frequency (`DeEssFreq`, ~5-9 kHz) with an adjustable detection bandwidth (`DeEssWidth`), a soft knee (`DeEssKnee`), optional stereo linking (`DeEssLink`) and optional lookahead (`DeEssLookahead`, 0-2 ms, off by default), and reduces it dynamically. A **Listen** mode solos the detected band for tuning by ear.
+- **Air** - a high-shelf with a wide, gentle transition for adding (or removing) openness above the vocal's presence range, at a selectable 10/12/15 kHz corner (`AirFreq`).
+- **Gentle Compressor** - a single-knob, zero-latency broadband "glue" compressor (`Comp`, 0-100%) with a program-dependent auto-release and optional stereo linking (`CompLink`), scaling threshold and ratio together up to a deliberately gentle 3:1 maximum, sitting after Air and before the Doubler so all doubled voices track a consistent level.
+- **Doubler** - four voices at fixed per-voice pan positions (a small-choir spread, not a single symmetric L/R pair), detuned (`DoubleDetune`, in cents) and spread across the stereo field (`DoubleWidth`), blended in (`Double`) on top of the centered dry signal. Three engines (`DoubleMode`): **Classic** modulated-delay chorus, **Micro** constant-offset micropitch, and **Shift** spectral pitch shifting with optional formant preservation (`DoubleFormant`). `Humanize` drifts each voice's timing, pitch and level independently so a stack decorrelates the way real singers do.
 - **Mix** / **Output** - overall dry/wet blend and output trim.
 - **Presets** - a preset bar with factory and user presets, save/rename/delete, and single-file/bank import-export.
 
 ## Signal flow
 
 ```
-input -> De-Ess (sibilance dynamic EQ, + Width + Listen mode) -> Air (high-shelf)
-       -> Gentle Compressor (broadband glue, auto-release) -> Doubler (4 voices, per-voice pan)
+input -> De-Ess (sibilance dynamic EQ, + Width/Knee/Link/Lookahead + Listen mode)
+       -> Air (high-shelf, 10/12/15 kHz) -> Gentle Compressor (broadband glue, auto-release, + Link)
+       -> Doubler (4 voices, per-voice pan, Classic/Micro/Shift + Humanize)
        -> Output trim -> Mix -> output
 ```
 
-See [`docs/architecture.md`](docs/architecture.md) for the full diagram, the de-esser/compressor/doubler DSP design, and the real-time-safety notes. Seraph reports 0 samples of latency: nothing in the chain needs host-side plugin delay compensation.
+See [`docs/architecture.md`](docs/architecture.md) for the full diagram, the de-esser/compressor/doubler DSP design, and the real-time-safety notes.
+
+**Latency**: in its default configuration Seraph reports 0 samples, so it needs no host-side delay compensation. Two settings change that on purpose - the doubler's **Shift** mode (~30 ms) and **De-Ess Lookahead** (0-2 ms) - and both are non-automatable for exactly that reason. See the manual's latency section.
 
 ## Parameters
 
@@ -50,6 +53,14 @@ See [`docs/architecture.md`](docs/architecture.md) for the full diagram, the de-
 | Double Width | 0-100 | 100 | % |
 | Mix | 0-100 | 100 | % |
 | Output | -24 to +24 | 0 | dB |
+| De-Ess Knee | 0-12 | 0 | dB |
+| De-Ess Lookahead | 0-2 | 0 | ms |
+| De-Ess Link | off/on | off | - |
+| Comp Link | off/on | off | - |
+| Air Freq | 10/12/15 kHz | 12 kHz | - |
+| Double Mode | Classic / Micro / Shift | Classic | - |
+| Humanize | 0-100 | 0 | % |
+| Formant Preserve | off/on | on | - |
 
 Full descriptions of what each parameter does musically are in [`docs/manual.md`](docs/manual.md); the sourced/reasoned design rationale behind the v0.2.0 ranges/defaults is in [`docs/design-brief.md`](docs/design-brief.md).
 
