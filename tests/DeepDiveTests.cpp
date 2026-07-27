@@ -1130,8 +1130,14 @@ TEST_CASE ("Compressor stereo link shares one envelope across both channels", "[
 
         for (int position = 0; position < numSamples; position += blockSize)
         {
+            // numSamples is not necessarily a whole number of blocks, so the
+            // final block is short - clamp it, exactly as renderDeEsser and
+            // LatencyTests' impulse helper do.
+            const auto length = std::min (blockSize, numSamples - position);
+            buffer.clear();
+
             // Loud tone on the left, quiet tone on the right.
-            for (int sample = 0; sample < blockSize; ++sample)
+            for (int sample = 0; sample < length; ++sample)
             {
                 const auto phase = juce::MathConstants<double>::twoPi * 220.0 * (position + sample) / sr;
                 buffer.setSample (0, sample, 0.9f * static_cast<float> (std::sin (phase)));
@@ -1139,10 +1145,11 @@ TEST_CASE ("Compressor stereo link shares one envelope across both channels", "[
             }
 
             juce::dsp::AudioBlock<float> block (buffer);
-            compressor.process (block);
+            auto slice = block.getSubBlock (0, static_cast<size_t> (length));
+            compressor.process (slice);
 
             for (int channel = 0; channel < 2; ++channel)
-                for (int sample = 0; sample < blockSize; ++sample)
+                for (int sample = 0; sample < length; ++sample)
                     output[static_cast<size_t> (channel)][static_cast<size_t> (position + sample)] =
                         buffer.getSample (channel, sample);
         }
