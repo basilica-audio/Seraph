@@ -13,6 +13,7 @@ namespace
 void MicroPitchShifter::prepare (double newSampleRate, float newBaseDelayMs)
 {
     sampleRate = newSampleRate > 0.0 ? newSampleRate : 44100.0;
+    samplesPerMillisecond = sampleRate * 0.001;
     baseDelayMs = newBaseDelayMs;
 
     bufferSize = static_cast<int> (std::ceil (sampleRate * maxDelayLineMs / 1000.0)) + 8;
@@ -112,10 +113,15 @@ float MicroPitchShifter::processSample (float input) noexcept
     writeIndex = writeIndex + 1 < bufferSize ? writeIndex + 1 : 0;
     buffer[static_cast<size_t> (writeIndex)] = input;
 
-    const auto sampleRateF = static_cast<float> (sampleRate);
+    // Milliseconds are converted through a double samples-per-millisecond
+    // factor rather than `ms * 0.001f * sampleRate` in float: the latter
+    // leaves a ~2e-5 sample residue on delays that are exactly integral (9 ms
+    // at 48 kHz is exactly 432 samples), which would make the zero-detune
+    // path an interpolated read instead of a bit-exact one and cost the null
+    // test roughly 40 dB of residual.
     const auto floorMs = juce::jmax (0.0f, baseDelayMs + baseDelayOffsetMs);
-    const auto floorSamples = floorMs * 0.001f * sampleRateF;
-    const auto sweepSamples = sweepRangeMs * 0.001f * sampleRateF;
+    const auto floorSamples = static_cast<float> (static_cast<double> (floorMs) * samplesPerMillisecond);
+    const auto sweepSamples = static_cast<float> (static_cast<double> (sweepRangeMs) * samplesPerMillisecond);
 
     const auto engagement = sweepEngagement.getNextValue();
 

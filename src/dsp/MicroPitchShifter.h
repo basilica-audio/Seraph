@@ -113,6 +113,7 @@ private:
     static constexpr float minReadDelaySamples = 2.0f; // Catmull-Rom needs one older tap either side
 
     double sampleRate = 44100.0;
+    double samplesPerMillisecond = 44.1;
     float baseDelayMs = 0.0f;
     float baseDelayOffsetMs = 0.0f;
     float detuneCents = 0.0f;
