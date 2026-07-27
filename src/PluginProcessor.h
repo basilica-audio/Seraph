@@ -50,6 +50,17 @@ public:
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
+    //==============================================================================
+    // State schema versioning (v0.3.0, SOTA DSP brief ss4). getStateInformation()
+    // stamps `stateVersionProperty` = stateSchemaVersion onto the APVTS root.
+    // States written by v0.1.x/v0.2.0 carry no such attribute and are treated as
+    // version 1 - see readStateSchemaVersion() and setStateInformation().
+    static constexpr int stateSchemaVersion = 2;
+    static inline const juce::Identifier stateVersionProperty { "stateVersion" };
+
+    // Schema version of an APVTS state tree; 1 when the attribute is absent.
+    static int readStateSchemaVersion (const juce::ValueTree& state) noexcept;
+
     juce::AudioProcessorValueTreeState apvts;
 
     // M2 preset system (.scaffold/specs/preset-system-m2.md,

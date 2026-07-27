@@ -246,17 +246,40 @@ juce::AudioProcessorEditor* SeraphAudioProcessor::createEditor()
 //==============================================================================
 void SeraphAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
-    const auto state = apvts.copyState();
+    auto state = apvts.copyState();
+
+    // State schema versioning, introduced in v0.3.0 (SOTA DSP brief ss4).
+    // States written by v0.1.x/v0.2.0 carry no such attribute at all and are
+    // therefore schema version 1 by absence; see setStateInformation() below
+    // for why version 1 needs no value rewriting.
+    state.setProperty (stateVersionProperty, stateSchemaVersion, nullptr);
+
     const std::unique_ptr<juce::XmlElement> xml (state.createXml());
     copyXmlToBinary (*xml, destData);
+}
+
+int SeraphAudioProcessor::readStateSchemaVersion (const juce::ValueTree& state) noexcept
+{
+    // Absent attribute => a pre-v0.3.0 state, which is schema version 1.
+    return static_cast<int> (state.getProperty (stateVersionProperty, 1));
 }
 
 void SeraphAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
     const std::unique_ptr<juce::XmlElement> xmlState (getXmlFromBinary (data, sizeInBytes));
 
-    if (xmlState != nullptr && xmlState->hasTagName (apvts.state.getType()))
-        apvts.replaceState (juce::ValueTree::fromXml (*xmlState));
+    if (xmlState == nullptr || ! xmlState->hasTagName (apvts.state.getType()))
+        return;
+
+    // Migration from schema version 1 (v0.1.x/v0.2.0) is deliberately a no-op
+    // beyond APVTS's own tolerant import: every parameter added in v0.3.0
+    // defaults to the value that reproduces v0.2.0 behaviour exactly, and
+    // replaceState() leaves a parameter's live value untouched when its PARAM
+    // child is absent from the incoming state (JUCE 8.0.14,
+    // updateParameterConnectionsToChildTrees()). So an old state lands on
+    // neutral defaults for all eight new parameters with no value rewriting -
+    // see tests/StateTests.cpp's migration case, which pins that contract.
+    apvts.replaceState (juce::ValueTree::fromXml (*xmlState));
 }
 
 //==============================================================================
