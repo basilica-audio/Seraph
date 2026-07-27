@@ -47,11 +47,9 @@ void SpectralShifter::prepare (double newSampleRate, int maximumBlockSize)
     // Pre-warm: push one maximum-size silent block through so any internal
     // buffer that is sized lazily on first use grows here, on the message
     // thread, rather than inside processBlock().
-    silentBlock.assign (static_cast<size_t> (maximumBlock) * 2, 0.0f);
+    scratch.assign (static_cast<size_t> (maximumBlock) * 2, 0.0f);
 
-    auto* inputData = silentBlock.data();
-    auto* outputData = silentBlock.data() + maximumBlock;
-    process (inputData, outputData, maximumBlock);
+    process (scratch.data(), scratch.data() + maximumBlock, maximumBlock);
 
     reset();
 }
@@ -95,6 +93,34 @@ void SpectralShifter::process (const float* input, float* output, int numSamples
 {
     if (numSamples <= 0)
         return;
+
+    // Sanitise before the engine sees anything.
+    //
+    // A phase vocoder carries per-bin phase accumulators from frame to frame,
+    // so a single NaN or infinity from a misbehaving upstream plugin poisons
+    // the spectral state permanently: the engine cannot recover, and neither
+    // does its own reset() - measured, not assumed (tests/RobustnessTests.cpp
+    // pins the resulting guarantee). Every other stage in Seraph recovers
+    // when the host calls reset(), so this one must not be the exception.
+    //
+    // Substituting silence for a non-finite sample is the standard boundary
+    // defence: the alternative is emitting NaN for the rest of the session.
+    // The branch costs nothing measurable next to an FFT.
+    const auto usable = juce::jmin (numSamples, maximumBlock);
+
+    if (usable <= 0 || static_cast<int> (scratch.size()) < usable)
+        return;
+
+    auto* sanitised = scratch.data();
+
+    for (int sample = 0; sample < usable; ++sample)
+    {
+        const auto value = input[sample];
+        sanitised[sample] = std::isfinite (value) ? value : 0.0f;
+    }
+
+    input = sanitised;
+    numSamples = usable;
 
     // The engine's process() is templated over anything indexable as
     // `channels[c][sample]`; these two adaptors avoid needing a

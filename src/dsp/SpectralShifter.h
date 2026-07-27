@@ -69,8 +69,12 @@ public:
     void setFormantPreserveEnabled (bool shouldPreserve);
 
     // Processes `numSamples` mono samples from `input` into `output`.
-    // `input` and `output` may not alias. numSamples must not exceed the
+    // `input` and `output` may not alias. numSamples is clamped to the
     // maximum block size passed to prepare(). No allocation occurs here.
+    //
+    // Non-finite input samples are replaced with silence before the engine
+    // sees them - see the implementation for why that is load-bearing rather
+    // than merely tidy.
     void process (const float* input, float* output, int numSamples) noexcept;
 
     // Reported latency in samples: the engine's analysis plus synthesis
@@ -93,9 +97,11 @@ private:
     float detuneCents = 0.0f;
     bool formantPreserve = true;
 
-    // Pre-allocated pointer-to-channel indirection the engine's templated
-    // process() expects, plus a silent block for the prepare()-time pre-warm.
-    std::vector<float> silentBlock;
+    // Pre-allocated working buffer: holds the sanitised copy of the input
+    // during process(), and doubles as the silent block prepare() uses to
+    // pre-warm the engine. Sized for two maximum blocks so both halves can be
+    // used at once during that pre-warm.
+    std::vector<float> scratch;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SpectralShifter)
 };
