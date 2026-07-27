@@ -47,6 +47,9 @@ namespace
             { BinaryData::glueOnly_json, BinaryData::glueOnly_jsonSize },
             { BinaryData::deEssOnlySurgical_json, BinaryData::deEssOnlySurgical_jsonSize },
             { BinaryData::wideDoubleNoDynamics_json, BinaryData::wideDoubleNoDynamics_jsonSize },
+            { BinaryData::choirSacredShift_json, BinaryData::choirSacredShift_jsonSize },
+            { BinaryData::doublerVintageMicro_json, BinaryData::doublerVintageMicro_jsonSize },
+            { BinaryData::leadTightStackHumanized_json, BinaryData::leadTightStackHumanized_jsonSize },
         };
     }
 }

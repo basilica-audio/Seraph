@@ -38,6 +38,9 @@ namespace
             { BinaryData::glueOnly_json, BinaryData::glueOnly_jsonSize },
             { BinaryData::deEssOnlySurgical_json, BinaryData::deEssOnlySurgical_jsonSize },
             { BinaryData::wideDoubleNoDynamics_json, BinaryData::wideDoubleNoDynamics_jsonSize },
+            { BinaryData::choirSacredShift_json, BinaryData::choirSacredShift_jsonSize },
+            { BinaryData::doublerVintageMicro_json, BinaryData::doublerVintageMicro_jsonSize },
+            { BinaryData::leadTightStackHumanized_json, BinaryData::leadTightStackHumanized_jsonSize },
         };
     }
 
@@ -270,7 +273,9 @@ TEST_CASE ("PresetManager: every factory preset parses and loads without error",
     const auto all = manager.getAllPresets();
     const auto factoryCount = std::count_if (all.begin(), all.end(), [] (auto& e) { return e.isFactory; });
 
-    REQUIRE (factoryCount == 9); // design-brief.md's Factory Presets section + Default
+    // Nine from v0.2.0 (design-brief.md's Factory Presets section + Default)
+    // plus the three added in v0.3.0 for the new doubler modes.
+    REQUIRE (factoryCount == 12);
 
     for (auto& entry : all)
     {
@@ -333,6 +338,105 @@ TEST_CASE ("PresetManager: factory preset content is plausible (Default is Init 
         CHECK (getParam (processor, ParamIDs::mix) <= 100.0f);
         CHECK (getParam (processor, ParamIDs::output) >= -24.0f);
         CHECK (getParam (processor, ParamIDs::output) <= 24.0f);
+
+        // v0.3.0 parameters.
+        CHECK (getParam (processor, ParamIDs::doubleMode) >= 0.0f);
+        CHECK (getParam (processor, ParamIDs::doubleMode) <= 2.0f);
+        CHECK (getParam (processor, ParamIDs::doubleHumanize) >= 0.0f);
+        CHECK (getParam (processor, ParamIDs::doubleHumanize) <= 100.0f);
+        CHECK (getParam (processor, ParamIDs::deEssKnee) >= 0.0f);
+        CHECK (getParam (processor, ParamIDs::deEssKnee) <= 12.0f);
+        CHECK (getParam (processor, ParamIDs::deEssLookahead) >= 0.0f);
+        CHECK (getParam (processor, ParamIDs::deEssLookahead) <= 2.0f);
+        CHECK (getParam (processor, ParamIDs::airFreq) >= 0.0f);
+        CHECK (getParam (processor, ParamIDs::airFreq) <= 2.0f);
+    }
+}
+
+//==============================================================================
+// v0.3.0 preset plan (SOTA DSP brief ss4 / ss6.15).
+
+TEST_CASE ("PresetManager: the nine legacy factory presets stay sonically unchanged", "[presets][compatibility]")
+{
+    // The v0.2.0 presets gained eight new keys. Every one of those keys had to
+    // be written at its neutral value, or an upgrade would silently re-voice
+    // presets users already know. Asserted by loading each and checking the
+    // eight new parameters land exactly on their defaults.
+    SeraphAudioProcessor processor;
+    processor.prepareToPlay (48000.0, 512);
+
+    ScopedTestDirectory scratch;
+    PresetManager manager (processor.apvts, makeIsolatedConfig (scratch.dir), makeTestFactoryPresetAssets());
+
+    static constexpr const char* legacyPresets[] = {
+        "Default", "Lead - Cut Through", "Lead - Intimate/Close-Mic", "Choir - Wide Spread",
+        "Choir - Tight Blend", "Spoken/Growled Interlude", "Glue Only", "De-Ess Only (Surgical)",
+        "Wide Double (No Dynamics)",
+    };
+
+    static constexpr const char* neutralIds[] = {
+        ParamIDs::doubleMode, ParamIDs::doubleHumanize, ParamIDs::doubleFormant,
+        ParamIDs::deEssLink, ParamIDs::deEssKnee, ParamIDs::deEssLookahead,
+        ParamIDs::airFreq, ParamIDs::compLink,
+    };
+
+    const auto all = manager.getAllPresets();
+
+    for (const auto* name : legacyPresets)
+    {
+        const auto entry = std::find_if (all.begin(), all.end(),
+                                         [name] (auto& e) { return e.name == juce::String (name); });
+
+        CAPTURE (name);
+        REQUIRE (entry != all.end());
+        REQUIRE (manager.loadPreset (entry->name));
+
+        for (const auto* id : neutralIds)
+        {
+            auto* param = processor.apvts.getParameter (id);
+            REQUIRE (param != nullptr);
+            CAPTURE (id);
+            CHECK (param->getValue() == Catch::Approx (param->getDefaultValue()).margin (1e-4));
+        }
+    }
+}
+
+TEST_CASE ("PresetManager: the three new presets actually use the new engines", "[presets]")
+{
+    // A preset that claims to demonstrate Shift mode and quietly loads on
+    // Classic would be worse than no preset at all.
+    SeraphAudioProcessor processor;
+    processor.prepareToPlay (48000.0, 512);
+
+    ScopedTestDirectory scratch;
+    PresetManager manager (processor.apvts, makeIsolatedConfig (scratch.dir), makeTestFactoryPresetAssets());
+
+    SECTION ("Choir - Sacred Shift uses Shift mode with formants preserved")
+    {
+        REQUIRE (manager.loadPreset ("Choir - Sacred Shift"));
+        CHECK (getParam (processor, ParamIDs::doubleMode) == Catch::Approx (2.0f));
+        CHECK (getParam (processor, ParamIDs::doubleFormant) == Catch::Approx (1.0f));
+        CHECK (getParam (processor, ParamIDs::doubleHumanize) > 0.0f);
+        CHECK (getParam (processor, ParamIDs::doubleAmount) > 0.0f);
+    }
+
+    SECTION ("Doubler - Vintage Micro uses Micro mode at a fixed detune")
+    {
+        REQUIRE (manager.loadPreset ("Doubler - Vintage Micro"));
+        CHECK (getParam (processor, ParamIDs::doubleMode) == Catch::Approx (1.0f));
+        CHECK (getParam (processor, ParamIDs::doubleDetune) == Catch::Approx (12.0f).margin (0.1f));
+        CHECK (getParam (processor, ParamIDs::doubleWidth) == Catch::Approx (100.0f).margin (0.1f));
+    }
+
+    SECTION ("Lead - Tight Stack combines Micro with the linked, soft-knee de-esser")
+    {
+        REQUIRE (manager.loadPreset ("Lead - Tight Stack"));
+        CHECK (getParam (processor, ParamIDs::doubleMode) == Catch::Approx (1.0f));
+        CHECK (getParam (processor, ParamIDs::doubleDetune) == Catch::Approx (7.0f).margin (0.1f));
+        CHECK (getParam (processor, ParamIDs::doubleHumanize) == Catch::Approx (25.0f).margin (0.1f));
+        CHECK (getParam (processor, ParamIDs::deEssLink) == Catch::Approx (1.0f));
+        CHECK (getParam (processor, ParamIDs::deEssKnee) == Catch::Approx (6.0f).margin (0.1f));
+        CHECK (getParam (processor, ParamIDs::deEssLookahead) == Catch::Approx (1.0f).margin (0.1f));
     }
 }
 

@@ -112,6 +112,9 @@ juce_add_binary_data(SeraphBinaryData SOURCES
     presets/factory/glueOnly.json
     presets/factory/deEssOnlySurgical.json
     presets/factory/wideDoubleNoDynamics.json
+    presets/factory/choirSacredShift.json
+    presets/factory/doublerVintageMicro.json
+    presets/factory/leadTightStackHumanized.json
     resources/i18n/de.txt
 )
 
