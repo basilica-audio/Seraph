@@ -10,7 +10,7 @@ set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS deployment ta
 # here at the top level avoids it being enabled implicitly deeper inside
 # JUCE's CMake helpers, which has been observed to break Ninja's generate
 # step (missing CMAKE_C_COMPILE_OBJECT rule variable).
-project(Seraph VERSION 0.2.0 LANGUAGES C CXX)
+project(Seraph VERSION 0.3.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -35,6 +35,43 @@ CPMAddPackage(
     GIT_TAG 8.0.14
     GIT_SHALLOW TRUE
 )
+
+# ==============================================================================
+# Signalsmith Stretch - the v0.3.0 "Shift" doubler mode's STFT pitch shifter
+# (docs/architecture.md, brief ss3.0/ss3.2). MIT-licensed and therefore
+# AGPLv3-compatible; the copyright notices live in THIRD-PARTY-NOTICES.md.
+#
+# Both packages are DOWNLOAD_ONLY: their own CMakeLists would pull
+# signalsmith-linear via FetchContent (bypassing CPM_SOURCE_CACHE) and, on
+# Apple targets, switch signalsmith-linear onto Accelerate/ACCELERATE_NEW_LAPACK
+# by default - whose new-LAPACK symbols are not available on this project's
+# 11.0 deployment target. Adding the two include directories by hand keeps the
+# header-only portable C++ FFT path, which is what the CPU budget in the brief
+# (ss3.2: <= 8% of one core for four Shift voices) was measured against.
+#
+# Pinned to the 1.3.2 development head rather than the 1.1.0 release tag
+# deliberately: the formant API the brief mandates (setFormantSemitones/
+# setFormantBase, ss3.2) does not exist in any tagged release yet. See
+# THIRD-PARTY-NOTICES.md and the v0.3.0 CHANGELOG entry.
+CPMAddPackage(
+    NAME signalsmith-linear
+    GITHUB_REPOSITORY Signalsmith-Audio/linear
+    GIT_TAG 0.3.1
+    GIT_SHALLOW TRUE
+    DOWNLOAD_ONLY TRUE
+)
+
+CPMAddPackage(
+    NAME signalsmith-stretch
+    GITHUB_REPOSITORY Signalsmith-Audio/signalsmith-stretch
+    GIT_TAG 57b93f4e9206a089a45387eaa39bdc9f310d3308
+    DOWNLOAD_ONLY TRUE
+)
+
+add_library(SignalsmithStretch INTERFACE)
+target_include_directories(SignalsmithStretch SYSTEM INTERFACE
+    "${signalsmith-stretch_SOURCE_DIR}/include"
+    "${signalsmith-linear_SOURCE_DIR}/include")
 
 # ==============================================================================
 # Plugin target
@@ -115,6 +152,7 @@ target_link_libraries(SharedCode INTERFACE
     juce::juce_recommended_lto_flags
     juce::juce_recommended_warning_flags
     SeraphBinaryData
+    SignalsmithStretch
 )
 
 target_link_libraries(Seraph PRIVATE SharedCode)
