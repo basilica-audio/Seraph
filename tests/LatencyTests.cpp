@@ -378,3 +378,134 @@ TEST_CASE ("SeraphEngine's latency is the sum of its two contributors", "[latenc
     engine.setDeEssLookaheadMs (0.0f);
     CHECK (engine.getLatencySamples() == 0);
 }
+
+//==============================================================================
+// Suite-wide hardening wave: sample-rate matrix reprepare.
+//
+// Broader than the fixed-sample-rate latency tests above: this drives one
+// processor instance through a full 44.1k -> 96k -> 192k reprepare matrix,
+// crossing small AND large block sizes and mono/stereo bus layouts along the
+// way, with automation-like parameter churn between reprepares. De-Ess
+// Lookahead is deliberately set ONCE, before the loop, and never swept
+// during the automation churn inside it - it is documented non-automatable
+// (ParameterLayout.cpp: `.withAutomatable (false)`) precisely because it
+// changes reported latency, and this test's job is proving prepareToPlay()
+// recomputes that reported latency correctly at every sample rate in the
+// matrix, not exercising mid-stream automation of a control the plugin
+// itself forbids automating. A nonzero, sample-rate-dependent lookahead is
+// used (rather than leaving Seraph's own zero-latency default in place) so
+// the "correct latency" assertion below is actually exercising the
+// round(ms * sr / 1000) recompute (DeEsser.cpp) instead of trivially
+// checking "still zero". Deterministic and block counts kept small so this
+// stays well under 30s even on Debug/CI.
+TEST_CASE ("Sample-rate matrix reprepare: 44.1k -> 96k -> 192k across block sizes and bus "
+           "layouts survives parameter automation and reports correct latency every time",
+           "[latency][robustness][samplerate][reprepare]")
+{
+    SeraphAudioProcessor processor;
+    juce::MidiBuffer midi;
+
+    constexpr float lookaheadMs = 1.5f;
+    setParam (processor, ParamIDs::deEssLookahead, lookaheadMs);
+
+    setParam (processor, ParamIDs::comp, 35.0f);
+    setParam (processor, ParamIDs::air, 3.0f);
+    setParam (processor, ParamIDs::deEss, 40.0f);
+    setParam (processor, ParamIDs::doubleAmount, 30.0f);
+    setParam (processor, ParamIDs::output, -2.0f);
+    setParam (processor, ParamIDs::mix, 90.0f);
+
+    auto* compParam = processor.apvts.getParameter (ParamIDs::comp);
+    REQUIRE (compParam != nullptr);
+
+    // Tracks what Comp's value ought to be at the start of each iteration -
+    // seeded from the setParam() above, then updated to the last value the
+    // automation loop below left it at, so each reprepare's "did the value
+    // survive" check is against ground truth rather than a stale constant.
+    auto expectedCompValue = compParam->convertFrom0to1 (compParam->getValue());
+
+    struct Step
+    {
+        double sampleRate;
+        int blockSize;
+        int numChannels;
+    };
+
+    // Small AND large blocks at both 96k and 192k, plus a mono layout
+    // change thrown in at 192k (Seraph supports mono - see
+    // isBusesLayoutSupported()) to make sure a channel-count change riding
+    // along with a sample-rate reprepare doesn't trip anything up.
+    static constexpr Step steps[] = {
+        { 44100.0,  32,   2 },
+        { 96000.0,  32,   2 },
+        { 96000.0,  2048, 2 },
+        { 192000.0, 32,   1 },
+        { 192000.0, 2048, 2 },
+    };
+
+    for (const auto& step : steps)
+    {
+        if (step.numChannels == 1)
+        {
+            juce::AudioProcessor::BusesLayout monoLayout;
+            monoLayout.inputBuses.add (juce::AudioChannelSet::mono());
+            monoLayout.outputBuses.add (juce::AudioChannelSet::mono());
+            REQUIRE (processor.setBusesLayout (monoLayout));
+        }
+        else
+        {
+            juce::AudioProcessor::BusesLayout stereoLayout;
+            stereoLayout.inputBuses.add (juce::AudioChannelSet::stereo());
+            stereoLayout.outputBuses.add (juce::AudioChannelSet::stereo());
+            REQUIRE (processor.setBusesLayout (stereoLayout));
+        }
+
+        processor.prepareToPlay (step.sampleRate, step.blockSize);
+
+        // Ground truth: a standalone engine prepared identically with the
+        // same fixed lookahead, so this checks the processor's *reported*
+        // latency against what the engine itself computes rather than
+        // re-deriving the rounding formula by hand in this test.
+        SeraphEngine referenceEngine;
+        juce::dsp::ProcessSpec spec;
+        spec.sampleRate = step.sampleRate;
+        spec.maximumBlockSize = static_cast<juce::uint32> (step.blockSize);
+        spec.numChannels = static_cast<juce::uint32> (step.numChannels);
+        referenceEngine.prepare (spec);
+        referenceEngine.setDeEssLookaheadMs (lookaheadMs);
+
+        // Latency must be reported (and positive - the lookahead always
+        // adds some) after every single reprepare in the matrix, not just
+        // the first one, and must match the engine's own ground truth.
+        CHECK (processor.getLatencySamples() > 0);
+        CHECK (processor.getLatencySamples() == referenceEngine.getLatencySamples());
+
+        // State survival: prepareToPlay() must never reset APVTS parameter
+        // values, at any sample rate/block-size/layout combination.
+        CHECK (compParam->convertFrom0to1 (compParam->getValue())
+               == Catch::Approx (expectedCompValue).margin (0.01f));
+
+        juce::AudioBuffer<float> buffer (step.numChannels, step.blockSize);
+
+        for (int block = 0; block < 4; ++block)
+        {
+            // Automation-like parameter churn while processing, mimicking a
+            // host sweeping controls mid-stream between reprepares. Comp/
+            // Air/De-Ess/Double are all fully automatable; De-Ess Lookahead
+            // and Double Mode are deliberately left untouched here (see the
+            // comment above the test).
+            const auto sweep = static_cast<float> (block) / 4.0f;
+            expectedCompValue = sweep * 100.0f;
+            setParam (processor, ParamIDs::comp, expectedCompValue);
+            setParam (processor, ParamIDs::air, -6.0f + sweep * 15.0f);
+            setParam (processor, ParamIDs::deEss, sweep * 100.0f);
+            setParam (processor, ParamIDs::doubleAmount, sweep * 100.0f);
+
+            TestHelpers::fillWithSine (buffer, step.sampleRate, 300.0, 0.6f,
+                                       static_cast<juce::int64> (block) * step.blockSize);
+
+            CHECK_NOTHROW (processor.processBlock (buffer, midi));
+            CHECK (TestHelpers::allSamplesFinite (buffer));
+        }
+    }
+}
