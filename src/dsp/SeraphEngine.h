@@ -91,6 +91,14 @@ public:
     // doubler's mode-dependent latency. Zero in the default configuration.
     int getLatencySamples() const noexcept;
 
+    // M3 metering (issue #4): the two gain-reducing stages' current gain
+    // reduction in dB (positive = reduction, 0 = none/bypassed), refreshed
+    // once per process() call by the stages themselves. Read by
+    // SeraphAudioProcessor at the end of processBlock() and republished as
+    // relaxed atomics for the GUI's needle meters.
+    float getDeEssGainReductionDb() const noexcept { return deEsser.getCurrentGainReductionDb(); }
+    float getCompGainReductionDb() const noexcept { return compressor.getCurrentGainReductionDb(); }
+
     // The three selectable Air shelf corners, in Hz (brief ss3.8). Index 1
     // (12 kHz) is the fixed constant v0.1/v0.2 always used.
     static constexpr std::array<float, 3> airFrequencyChoicesHz { { 10000.0f, 12000.0f, 15000.0f } };

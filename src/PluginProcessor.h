@@ -71,8 +71,19 @@ public:
     // already uses.
     basilica::presets::PresetManager presetManager;
 
+    // M3 meter surface (issue #4): the de-esser's and the compressor's most
+    // recent per-block gain reduction in dB (positive = reduction),
+    // refreshed from the engine at the end of every processBlock() call.
+    // Safe to read from any thread; consumed by the editor's needle meters
+    // via a GUI timer (see PluginEditor.cpp).
+    float getDeEssGainReductionMeterDb() const noexcept { return deEssGainReductionMeterDb.load (std::memory_order_relaxed); }
+    float getCompGainReductionMeterDb() const noexcept { return compGainReductionMeterDb.load (std::memory_order_relaxed); }
+
 private:
     SeraphEngine engine;
+
+    std::atomic<float> deEssGainReductionMeterDb { 0.0f };
+    std::atomic<float> compGainReductionMeterDb { 0.0f };
 
     // Raw atomic pointers into the APVTS-managed parameter values, resolved
     // once at construction time so processBlock() never has to search for

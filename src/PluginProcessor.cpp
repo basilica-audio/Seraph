@@ -268,6 +268,13 @@ void SeraphAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce:
         lastReportedLatencySamples = latencySamples;
         setLatencySamples (latencySamples);
     }
+
+    // M3 meter surface (issue #4): republish the engine's per-block gain
+    // reduction readings as relaxed atomics for the GUI's needle meters -
+    // plain stores, nothing the allocation guard or the RT contract cares
+    // about.
+    deEssGainReductionMeterDb.store (engine.getDeEssGainReductionDb(), std::memory_order_relaxed);
+    compGainReductionMeterDb.store (engine.getCompGainReductionDb(), std::memory_order_relaxed);
 }
 
 //==============================================================================

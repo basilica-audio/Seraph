@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **M3 custom vector editor** (issue #4, ported from Miserere's merged M3
+  implementation, basilica-audio/miserere PR #31): the interim slider/dropdown
+  editor is replaced by the suite's fully vector-drawn black/gold surface —
+  pointer knobs with engraved scale rings (choice parameters as detented knobs
+  announcing the choice *name*), lamp toggles, EB Garamond typography embedded
+  via BinaryData (OFL licensed), and five signal-flow stage panels (De-Ess /
+  Air / Compressor / Doubler / Output). No photoreal PNG assets; everything is
+  drawn at runtime with `juce::Graphics`/`juce::Path`.
+- **Gain-reduction needle meters**: two vector needle meters (De-Esser and
+  Compressor) driven by new relaxed-atomic meter getters on the processor
+  (`getDeEssGainReductionMeterDb()` / `getCompGainReductionMeterDb()`, fed from
+  the stages' existing per-block gain-reduction readings) via a 30 Hz GUI
+  timer with one-pole ballistics.
+- **Accessible parameter surface** (WCAG 2.1 AA): every control keyboard-
+  operable (WAI-ARIA stepping: Arrow 1%, Shift+Arrow fine, PageUp/Down 10%,
+  Home/End extremes), visible focus rings on all custom-painted controls,
+  name/value/role for every knob/toggle/meter (unit-suffixed accessible values,
+  read-only meter values), stage panels as accessibility focus containers
+  (grouped AT navigation without trapping Tab), and WCAG-contrast unit tests
+  pinned to the exact rendered colour pairs. New test suites:
+  `tests/gui/EditorAccessibilityTests.cpp`, `EditorLayoutTests.cpp`,
+  `BasilicaLookAndFeelContrastTests.cpp`, `NeedleMeterTests.cpp`.
+
 ## [0.3.0] - 2026-07-27
 
 The doubler stops faking it. v0.1/v0.2 detuned by wobbling a delay line, which

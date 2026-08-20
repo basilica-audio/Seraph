@@ -116,6 +116,12 @@ juce_add_binary_data(SeraphBinaryData SOURCES
     presets/factory/doublerVintageMicro.json
     presets/factory/leadTightStackHumanized.json
     resources/i18n/de.txt
+    # Suite typography (M3 vector editor, issue #4): EB Garamond, OFL
+    # licensed (resources/fonts/OFL-EBGaramond.txt) - consumed by
+    # src/gui/BasilicaLookAndFeel.cpp as the single source of every glyph
+    # the fully JUCE-drawn editor renders.
+    resources/fonts/EBGaramond-Regular.ttf
+    resources/fonts/EBGaramond-SemiBold.ttf
 )
 
 # ==============================================================================

@@ -134,9 +134,23 @@ A few mechanisms worth knowing about if you want to understand why the three dou
 - **Pair Air Freq at 15 kHz with heavier de-essing.** It lets you add openness above the sibilance region instead of on top of it.
 - **Seraph is still safe in parallel chains.** In its default configuration it reports no latency at all; when Shift mode or lookahead is engaged, your DAW's delay compensation handles the alignment, and the dry side of Mix is delayed internally to match.
 
+## The editor
+
+Seraph ships the suite's M3 vector editor: a fully runtime-drawn black/gold surface (no bitmap assets) with pointer knobs on engraved scale rings, lamp toggles, and five stage panels laid out in signal-flow order - **De-Ess**, **Air**, **Compressor**, **Doubler**, and **Output**. Choice parameters (Doubler Mode, the Air shelf corner) are detented knobs that snap to and announce their mode names.
+
+Two needle meters show live gain reduction: **ESS** on the De-Ess panel and **COMP** on the Compressor panel, both in dB of reduction with gentle meter ballistics (the needle rests right at 0 dB and sweeps left as reduction deepens).
+
+### Accessibility
+
+The editor is built to WCAG 2.1 AA:
+
+- **Keyboard**: every knob and toggle is Tab-reachable. Arrows step knobs by 1% of their range, Shift+Arrow steps fine (0.1%), PageUp/PageDown by 10%, Home/End jump to the extremes; choice knobs step exactly one mode per arrow press. Toggles flip with Space/Enter. Shift-drag is the mouse analog of Shift+Arrow (fine adjustment).
+- **Visible focus**: a gold focus ring (with a dark halo) marks the focused control at all times.
+- **Screen readers**: every control exposes its printed label as its accessible name, its value with unit ("40.0 %", "7000 Hz"), and its proper role; the five panels are announced as named groups; the meters expose their smoothed reading as a read-only value on demand.
+- **Contrast**: all rendered text/marking pairs hold at least 4.5:1 (WCAG AA), enforced by unit tests against the exact colours drawn.
+
 ## Known limitations (v0.3.0)
 
-- The GUI is a functional slider/knob editor plus a plain preset bar (custom vector-drawn GUI is a later milestone - see the project roadmap).
 - Detune is capped at +/-50 cents in every mode. Shift mode's engine is capable of far more, but larger intervals need per-voice control and a harmonizer's interface, which is a separate feature rather than a bigger number on this knob.
 - Formant preservation is only meaningful in Shift mode; Classic and Micro do not resample the spectrum, so there is nothing for it to correct.
 - De-Ess's detection threshold is still a fixed, absolute level (not level-relative/adaptive) - a very quiet take may need its gain staged up before De-Ess reacts meaningfully. See `docs/design-brief.md` ss2.1 for the reasoning.
