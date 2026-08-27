@@ -275,6 +275,22 @@ void SeraphAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce:
     // about.
     deEssGainReductionMeterDb.store (engine.getDeEssGainReductionDb(), std::memory_order_relaxed);
     compGainReductionMeterDb.store (engine.getCompGainReductionDb(), std::memory_order_relaxed);
+
+    // Wave-3 VU surface: per-channel post-chain output peaks for the
+    // editor's two needle dials. getMagnitude() is a plain scan of the
+    // buffer (no allocation, no locks); mono publishes the single
+    // channel's reading on both sides so the dials stay honest. Guards
+    // read the BUFFER's real channel count, not the negotiated bus
+    // layout - a host (or test) may legally hand a narrower buffer than
+    // the layout advertises, and indexing past getNumChannels() is UB.
+    const auto numSamples = buffer.getNumSamples();
+    const auto numBufferChannels = buffer.getNumChannels();
+    const auto peakL = numBufferChannels > 0 && numSamples > 0
+                           ? buffer.getMagnitude (0, 0, numSamples) : 0.0f;
+    const auto peakR = numBufferChannels > 1 && numSamples > 0
+                           ? buffer.getMagnitude (1, 0, numSamples) : peakL;
+    outputPeakLinearL.store (peakL, std::memory_order_relaxed);
+    outputPeakLinearR.store (peakR, std::memory_order_relaxed);
 }
 
 //==============================================================================

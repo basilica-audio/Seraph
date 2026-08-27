@@ -1,78 +1,49 @@
 #include "PluginEditor.h"
 #include "PluginProcessor.h"
-#include "gui/BusPanel.h"
-#include "gui/NeedleMeter.h"
+#include "gui/AnalogMeter.h"
+#include "gui/MasterCropKnob.h"
+#include "gui/SpriteToggle.h"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
-#include <functional>
-#include <vector>
-
-// M3 accessible parameter surface (issue #4): asserts the actual
-// AccessibilityHandler-level behaviour of the vector editor, not just that
-// it constructs. juce::ScopedJuceInitialiser_GUI is installed once for the
-// whole test binary in tests/TestMain.cpp, so constructing Components is
-// safe in this headless console executable with no message loop or native
-// window/peer.
+// Accessibility tests for the wave-3 compositional editor, carrying over
+// the suite's M3 a11y review contract (A-01/A-02/A-05/A-09/A-10): assert
+// the actual AccessibilityHandler-level behaviour, not just that the
+// editor constructs. juce::ScopedJuceInitialiser_GUI is installed once for
+// the whole test binary in tests/TestMain.cpp.
 //
-// Deliberately calls createAccessibilityHandler() directly rather than
+// createAccessibilityHandler() is called directly rather than
 // getAccessibilityHandler(): the latter (JUCE 8.0.14
 // juce_Component.cpp:3323-3326) only returns a handler once the component
-// has a live native window peer, which this headless binary never has.
-// createAccessibilityHandler() is public API safely callable independent of
-// any live OS accessibility bridge (see its docs in juce_Component.h).
+// has a live native window peer, which this headless test binary never
+// has.
 namespace
 {
-    // The editor's controls live inside one BusPanel per processing stage -
-    // all lookups walk the tree recursively.
     template <typename ComponentType>
-    ComponentType* findDescendantByTitle (juce::Component& parent, const juce::String& title)
+    ComponentType* findChildByTitle (juce::Component& parent, const juce::String& title)
     {
         for (int i = 0; i < parent.getNumChildComponents(); ++i)
         {
-            auto* child = parent.getChildComponent (i);
-
-            if (auto* typed = dynamic_cast<ComponentType*> (child))
+            if (auto* typed = dynamic_cast<ComponentType*> (parent.getChildComponent (i)))
                 if (typed->getTitle() == title)
                     return typed;
-
-            if (auto* found = findDescendantByTitle<ComponentType> (*child, title))
-                return found;
         }
 
         return nullptr;
     }
 
-    template <typename ComponentType>
-    void visitDescendants (juce::Component& parent, const std::function<void (ComponentType&)>& visit)
-    {
-        for (int i = 0; i < parent.getNumChildComponents(); ++i)
-        {
-            auto* child = parent.getChildComponent (i);
-
-            if (auto* typed = dynamic_cast<ComponentType*> (child))
-                visit (*typed);
-
-            visitDescendants<ComponentType> (*child, visit);
-        }
-    }
-
-    // juce::Button::createAccessibilityHandler() (unlike juce::Slider's) is
-    // declared PROTECTED (JUCE 8.0.14 juce_Button.h). Per [class.access.virt]
-    // access is checked against the STATIC type naming the call, so calling
-    // through juce::Component& (where it is public) compiles and virtual
-    // dispatch still invokes the most-derived override. Used uniformly for
-    // all component types tested here.
+    // juce::Button::createAccessibilityHandler() is declared PROTECTED
+    // (JUCE 8.0.14 juce_Button.h) - calling through a juce::Component&
+    // (where the virtual is public) compiles and still dispatches to the
+    // most-derived override ([class.access.virt]).
     std::unique_ptr<juce::AccessibilityHandler> createHandlerForTest (juce::Component& component)
     {
         return component.createAccessibilityHandler();
     }
-
-    constexpr const char* stagePanelTitles[] = { "De-Ess", "Air", "Compressor", "Doubler", "Output" };
 }
 
-TEST_CASE ("Knob accessible value strings include their declared unit", "[gui][a11y]")
+TEST_CASE ("Knob accessibility value strings include their declared unit", "[gui][a11y]")
 {
     SeraphAudioProcessor processor;
     processor.prepareToPlay (48000.0, 512);
@@ -80,36 +51,22 @@ TEST_CASE ("Knob accessible value strings include their declared unit", "[gui][a
 
     struct Expectation
     {
-        const char* panel;
-        const char* label;
+        const char* title;
         const char* unitSuffix;
     };
 
-    // One representative per unit declared in ParameterLayout.cpp
-    // (.withLabel("%"/"Hz"/"dB"/"ms"/"cents")), scoped to a panel because
-    // labels like "Width" repeat across stages (De-Ess's detector width vs
-    // the Doubler's stereo spread). The A-02 gap this guards against is
-    // units being dropped entirely by the SliderAttachment's own
-    // textFromValueFunction (JUCE 8.0.14 juce_ParameterAttachments.cpp:128
-    // assigns it in the attachment constructor, silently clobbering
-    // anything set before - PluginEditor.cpp must set its unit-suffixing
-    // function AFTER constructing the attachment).
+    // One representative knob per unit declared in ParameterLayout.cpp
+    // (.withLabel("dB"/"Hz"/"%"/"cents")).
     const Expectation expectations[] = {
-        { "De-Ess", "De-Ess", "%" },
-        { "De-Ess", "Freq", "Hz" },
-        { "De-Ess", "Knee", "dB" },
-        { "De-Ess", "Lookahead", "ms" },
-        { "Doubler", "Detune", "cents" },
-        { "Output", "Mix", "%" },
-        { "Output", "Output", "dB" },
+        { "De-Ess", "%" },
+        { "De-Ess Freq", "Hz" },
+        { "Air", "dB" },
+        { "Double Detune", "cents" },
     };
 
     for (const auto& expectation : expectations)
     {
-        auto* panel = findDescendantByTitle<basilica::gui::BusPanel> (editor, expectation.panel);
-        REQUIRE (panel != nullptr);
-
-        auto* knob = findDescendantByTitle<juce::Slider> (*panel, expectation.label);
+        auto* knob = findChildByTitle<basilica::gui::MasterCropKnob> (editor, expectation.title);
         REQUIRE (knob != nullptr);
 
         const auto handler = createHandlerForTest (*knob);
@@ -119,49 +76,67 @@ TEST_CASE ("Knob accessible value strings include their declared unit", "[gui][a
         REQUIRE (valueInterface != nullptr);
 
         const auto valueText = valueInterface->getCurrentValueAsString();
-        INFO ("knob \"" << expectation.panel << " / " << expectation.label
-              << "\" accessible value = \"" << valueText.toStdString() << "\"");
+        INFO ("knob \"" << expectation.title << "\" accessible value = \"" << valueText.toStdString() << "\"");
         CHECK (valueText.endsWith (expectation.unitSuffix));
     }
 }
 
-TEST_CASE ("Choice knobs announce the current choice by NAME, not by index", "[gui][a11y]")
+TEST_CASE ("Toggle accessible name matches its parameter and exposes a checkable state", "[gui][a11y]")
 {
     SeraphAudioProcessor processor;
     processor.prepareToPlay (48000.0, 512);
     SeraphAudioProcessorEditor editor (processor);
 
-    struct Expectation
+    auto* toggle = findChildByTitle<basilica::gui::SpriteToggle> (editor, "De-Ess Listen");
+    REQUIRE (toggle != nullptr);
+    CHECK (toggle->getTitle() == "De-Ess Listen");
+
+    const auto handler = createHandlerForTest (*toggle);
+    REQUIRE (handler != nullptr);
+
+    // SpriteToggle calls setClickingTogglesState(true), so juce::Button's
+    // AccessibilityHandler exposes checkable/checked state.
+    CHECK (handler->getCurrentState().isCheckable());
+}
+
+TEST_CASE ("The VU dials are titled display-only elements that never steal focus or clicks", "[gui][a11y]")
+{
+    SeraphAudioProcessor processor;
+    processor.prepareToPlay (48000.0, 512);
+    SeraphAudioProcessorEditor editor (processor);
+
+    for (const auto* title : { "Output Level Left meter", "Output Level Right meter" })
     {
-        const char* panel;
-        const char* label;
-        const char* defaultChoiceName; // per ParameterLayout.cpp defaults
-    };
+        auto* meter = findChildByTitle<basilica::gui::AnalogMeter> (editor, title);
+        REQUIRE (meter != nullptr);
 
-    const Expectation expectations[] = {
-        { "Doubler", "Mode", "Classic" }, // doubleMode, default index 0
-        { "Air", "Shelf", "12 kHz" },     // airFreq, default index 1
-    };
+        CHECK_FALSE (meter->getWantsKeyboardFocus());
 
-    for (const auto& expectation : expectations)
-    {
-        auto* panel = findDescendantByTitle<basilica::gui::BusPanel> (editor, expectation.panel);
-        REQUIRE (panel != nullptr);
-
-        auto* knob = findDescendantByTitle<juce::Slider> (*panel, expectation.label);
-        REQUIRE (knob != nullptr);
-
-        const auto handler = createHandlerForTest (*knob);
-        REQUIRE (handler != nullptr);
-
-        auto* valueInterface = handler->getValueInterface();
-        REQUIRE (valueInterface != nullptr);
-
-        const auto valueText = valueInterface->getCurrentValueAsString();
-        INFO ("choice knob \"" << expectation.panel << " / " << expectation.label
-              << "\" accessible value = \"" << valueText.toStdString() << "\"");
-        CHECK (valueText == expectation.defaultChoiceName);
+        bool clicksOnSelf = true, clicksOnChildren = true;
+        meter->getInterceptsMouseClicks (clicksOnSelf, clicksOnChildren);
+        CHECK_FALSE (clicksOnSelf);
     }
+}
+
+TEST_CASE ("Scale button's accessible title reflects the current scale percentage, not a static string", "[gui][a11y]")
+{
+    SeraphAudioProcessor processor;
+    processor.prepareToPlay (48000.0, 512);
+    SeraphAudioProcessorEditor editor (processor);
+
+    auto* scaleButton = dynamic_cast<juce::TextButton*> (editor.findChildWithID ("scaleButton"));
+    REQUIRE (scaleButton != nullptr);
+
+    CHECK (scaleButton->getTitle().contains ("100%"));
+
+    // Cycle via the SAME onClick callback a real click would invoke -
+    // triggerClick() only posts an async message needing a message loop.
+    REQUIRE (scaleButton->onClick);
+    scaleButton->onClick();
+
+    CHECK (scaleButton->getButtonText() == "150%");
+    CHECK (scaleButton->getTitle().contains ("150%"));
+    CHECK_FALSE (scaleButton->getTitle().contains ("100%"));
 }
 
 TEST_CASE ("Every interactive control is keyboard-focusable", "[gui][a11y]")
@@ -172,49 +147,31 @@ TEST_CASE ("Every interactive control is keyboard-focusable", "[gui][a11y]")
 
     int slidersSeen = 0, togglesSeen = 0;
 
-    visitDescendants<juce::Slider> (editor, [&] (juce::Slider& slider)
+    for (int i = 0; i < editor.getNumChildComponents(); ++i)
     {
-        ++slidersSeen;
-        INFO ("knob \"" << slider.getTitle().toStdString() << "\"");
-        CHECK (slider.getWantsKeyboardFocus());
-        CHECK (slider.getTitle().isNotEmpty());
-    });
+        auto* child = editor.getChildComponent (i);
 
-    visitDescendants<juce::ToggleButton> (editor, [&] (juce::ToggleButton& toggle)
-    {
-        ++togglesSeen;
-        INFO ("toggle \"" << toggle.getTitle().toStdString() << "\"");
-        CHECK (toggle.getWantsKeyboardFocus());
-        CHECK (toggle.getTitle().isNotEmpty());
-    });
+        if (auto* slider = dynamic_cast<juce::Slider*> (child))
+        {
+            ++slidersSeen;
+            INFO ("slider \"" << slider->getTitle().toStdString() << "\"");
+            CHECK (slider->getWantsKeyboardFocus());
+        }
+        else if (auto* toggle = dynamic_cast<basilica::gui::SpriteToggle*> (child))
+        {
+            ++togglesSeen;
+            CHECK (toggle->getWantsKeyboardFocus());
+        }
+    }
 
-    // 13 float + 2 choice parameters = 15 knobs; 4 bool parameters = 4
-    // toggles (see ParameterIds.h). A zero-match walk must not pass
-    // vacuously.
-    CHECK (slidersSeen == 15);
-    CHECK (togglesSeen == 4);
+    // All 10 knobs are sliders; the De-Ess Listen lever is the one
+    // SpriteToggle. A zero-match loop must not pass vacuously.
+    CHECK (slidersSeen == 10);
+    CHECK (togglesSeen == 1);
 
-    // The preset bar's buttons are stock juce::TextButtons - focusable by
-    // default, and none may have opted out. Save/Delete start DISABLED
-    // (factory preset active, nothing dirty), and JUCE 8.0.14's
-    // getWantsKeyboardFocus() reports false while a component is disabled
-    // (juce_Component.cpp:2874) - correct WCAG behaviour (disabled controls
-    // leave the tab order), so the assertion is focusable-iff-enabled.
-    int presetButtonsSeen = 0, disabledPresetButtonsSeen = 0;
-
-    visitDescendants<juce::TextButton> (editor, [&] (juce::TextButton& button)
-    {
-        ++presetButtonsSeen;
-
-        if (! button.isEnabled())
-            ++disabledPresetButtonsSeen;
-
-        INFO ("preset-bar button \"" << button.getButtonText().toStdString() << "\"");
-        CHECK (button.getWantsKeyboardFocus() == button.isEnabled());
-    });
-
-    CHECK (presetButtonsSeen == 8); // prev/name/next/save/save-as/delete/import/export
-    CHECK (disabledPresetButtonsSeen == 2); // Save (not dirty) + Delete (factory preset)
+    auto* scaleButton = editor.findChildWithID ("scaleButton");
+    REQUIRE (scaleButton != nullptr);
+    CHECK (scaleButton->getWantsKeyboardFocus());
 }
 
 TEST_CASE ("Arrow keys step knobs by a practical amount, Shift+Arrow steps finer", "[gui][a11y]")
@@ -223,245 +180,27 @@ TEST_CASE ("Arrow keys step knobs by a practical amount, Shift+Arrow steps finer
     processor.prepareToPlay (48000.0, 512);
     SeraphAudioProcessorEditor editor (processor);
 
-    // Mix: linear 0-100%, 0.1% interval (ParameterLayout.cpp). The stock
-    // Slider::Pimpl::keyPressed would step by the raw 0.1% interval (1000
-    // presses for a full sweep) and ignore Shift entirely - see
-    // src/gui/KeyboardSteps.h.
-    auto* knob = findDescendantByTitle<juce::Slider> (editor, "Mix");
+    // Air: linear -6..+9 dB, fine interval (ParameterLayout.cpp) - the
+    // JUCE base-class step would need hundreds of presses per sweep.
+    auto* knob = findChildByTitle<basilica::gui::MasterCropKnob> (editor, "Air");
     REQUIRE (knob != nullptr);
 
-    knob->setValue (50.0, juce::sendNotificationSync);
+    const auto range = knob->getMaximum() - knob->getMinimum();
+    knob->setValue (knob->getMinimum() + range * 0.5, juce::dontSendNotification);
+    const auto before = knob->getValue();
 
-    juce::Component& knobAsComponent = *knob;
+    REQUIRE (knob->keyPressed (juce::KeyPress (juce::KeyPress::rightKey)));
+    const auto coarseStep = knob->getValue() - before;
 
-    // Plain Right = 1% of the 100% range = 1%.
-    REQUIRE (knobAsComponent.keyPressed (juce::KeyPress (juce::KeyPress::rightKey)));
-    CHECK (knob->getValue() == Catch::Approx (51.0).margin (1.0e-4));
+    // WAI-ARIA slider pattern: Arrow ~1% of the range.
+    CHECK (coarseStep > range * 0.005);
+    CHECK (coarseStep < range * 0.02);
 
-    // Shift+Right = 0.1% of the range = 0.1%, exactly the parameter grid.
-    REQUIRE (knobAsComponent.keyPressed (juce::KeyPress (juce::KeyPress::rightKey,
-                                                         juce::ModifierKeys::shiftModifier, 0)));
-    CHECK (knob->getValue() == Catch::Approx (51.1).margin (1.0e-4));
+    const auto beforeFine = knob->getValue();
+    REQUIRE (knob->keyPressed (juce::KeyPress (juce::KeyPress::rightKey,
+                                               juce::ModifierKeys::shiftModifier, 0)));
+    const auto fineStep = knob->getValue() - beforeFine;
 
-    // Plain Left steps back down symmetrically.
-    REQUIRE (knobAsComponent.keyPressed (juce::KeyPress (juce::KeyPress::leftKey)));
-    CHECK (knob->getValue() == Catch::Approx (50.1).margin (1.0e-4));
-
-    // PageDown = 10% of the range = 10%.
-    REQUIRE (knobAsComponent.keyPressed (juce::KeyPress (juce::KeyPress::pageDownKey)));
-    CHECK (knob->getValue() == Catch::Approx (40.1).margin (1.0e-4));
-
-    // Home/End jump to the range extremes (WAI-ARIA slider pattern).
-    REQUIRE (knobAsComponent.keyPressed (juce::KeyPress (juce::KeyPress::homeKey)));
-    CHECK (knob->getValue() == Catch::Approx (0.0).margin (1.0e-4));
-    REQUIRE (knobAsComponent.keyPressed (juce::KeyPress (juce::KeyPress::endKey)));
-    CHECK (knob->getValue() == Catch::Approx (100.0).margin (1.0e-4));
-}
-
-TEST_CASE ("Choice knobs step exactly one detent per arrow press and announce the new choice", "[gui][a11y]")
-{
-    SeraphAudioProcessor processor;
-    processor.prepareToPlay (48000.0, 512);
-    SeraphAudioProcessorEditor editor (processor);
-
-    auto* doublerPanel = findDescendantByTitle<basilica::gui::BusPanel> (editor, "Doubler");
-    REQUIRE (doublerPanel != nullptr);
-
-    // Doubler Mode: 3 choices (Classic / Micro / Shift). A 1%-of-range
-    // coarse step would collapse to zero after interval snapping -
-    // KeyboardSteps.h's one-interval fallback must turn every arrow press
-    // into exactly one detent instead of silently swallowing it.
-    auto* knob = findDescendantByTitle<juce::Slider> (*doublerPanel, "Mode");
-    REQUIRE (knob != nullptr);
-
-    juce::Component& knobAsComponent = *knob;
-
-    REQUIRE (knobAsComponent.keyPressed (juce::KeyPress (juce::KeyPress::homeKey)));
-    CHECK (knob->getValue() == Catch::Approx (0.0).margin (1.0e-6));
-
-    const auto handler = createHandlerForTest (*knob);
-    REQUIRE (handler != nullptr);
-    auto* valueInterface = handler->getValueInterface();
-    REQUIRE (valueInterface != nullptr);
-    CHECK (valueInterface->getCurrentValueAsString() == "Classic");
-
-    REQUIRE (knobAsComponent.keyPressed (juce::KeyPress (juce::KeyPress::rightKey)));
-    CHECK (knob->getValue() == Catch::Approx (1.0).margin (1.0e-6));
-    CHECK (valueInterface->getCurrentValueAsString() == "Micro");
-
-    REQUIRE (knobAsComponent.keyPressed (juce::KeyPress (juce::KeyPress::leftKey)));
-    CHECK (knob->getValue() == Catch::Approx (0.0).margin (1.0e-6));
-
-    REQUIRE (knobAsComponent.keyPressed (juce::KeyPress (juce::KeyPress::endKey)));
-    CHECK (knob->getValue() == Catch::Approx (2.0).margin (1.0e-6));
-    CHECK (valueInterface->getCurrentValueAsString() == "Shift");
-}
-
-TEST_CASE ("Ctrl/Cmd-modified arrow presses are left to the host", "[gui][a11y]")
-{
-    SeraphAudioProcessor processor;
-    processor.prepareToPlay (48000.0, 512);
-    SeraphAudioProcessorEditor editor (processor);
-
-    auto* knob = findDescendantByTitle<juce::Slider> (editor, "Mix");
-    REQUIRE (knob != nullptr);
-
-    knob->setValue (50.0, juce::sendNotificationSync);
-    juce::Component& knobAsComponent = *knob;
-
-    CHECK_FALSE (knobAsComponent.keyPressed (juce::KeyPress (juce::KeyPress::rightKey,
-                                                             juce::ModifierKeys::ctrlModifier, 0)));
-    CHECK_FALSE (knobAsComponent.keyPressed (juce::KeyPress (juce::KeyPress::rightKey,
-                                                             juce::ModifierKeys::commandModifier, 0)));
-    CHECK (knob->getValue() == Catch::Approx (50.0));
-}
-
-TEST_CASE ("Toggles expose title, checkable state, and real APVTS wiring", "[gui][a11y]")
-{
-    SeraphAudioProcessor processor;
-    processor.prepareToPlay (48000.0, 512);
-    SeraphAudioProcessorEditor editor (processor);
-
-    struct Expectation
-    {
-        const char* panel;
-        const char* title;
-        const char* parameterId;
-        float defaultRaw;
-    };
-
-    const Expectation expectations[] = {
-        { "De-Ess", "Listen", "deEssListen", 0.0f },
-        { "De-Ess", "Link", "deEssLink", 0.0f },
-        { "Compressor", "Link", "compLink", 0.0f },
-        { "Doubler", "Formant", "doubleFormant", 1.0f }, // default ON (neutral for Classic/Micro)
-    };
-
-    for (const auto& expectation : expectations)
-    {
-        auto* panel = findDescendantByTitle<basilica::gui::BusPanel> (editor, expectation.panel);
-        REQUIRE (panel != nullptr);
-
-        auto* toggle = findDescendantByTitle<juce::ToggleButton> (*panel, expectation.title);
-        REQUIRE (toggle != nullptr);
-        INFO ("toggle \"" << expectation.panel << " / " << expectation.title << "\"");
-
-        CHECK (toggle->getTitle() == expectation.title);
-
-        const auto handler = createHandlerForTest (*toggle);
-        REQUIRE (handler != nullptr);
-
-        // juce::ToggleButton's constructor calls setClickingTogglesState(true)
-        // (JUCE 8.0.14 juce_ToggleButton.cpp), so the base Button handler
-        // exposes checkable/checked state; its createAccessibilityHandler
-        // reports AccessibilityRole::toggleButton (juce_ToggleButton.cpp:71),
-        // so VoiceOver's rotor lists these as toggles, not plain buttons.
-        CHECK (handler->getCurrentState().isCheckable());
-
-        // Real APVTS wiring, never a decorative stub: flipping the toggle
-        // through the state API (the same entry point mouse, Space/Return
-        // and the attachment all funnel through) must move the parameter.
-        auto* raw = processor.apvts.getRawParameterValue (expectation.parameterId);
-        REQUIRE (raw != nullptr);
-        CHECK (raw->load() == Catch::Approx (expectation.defaultRaw));
-
-        toggle->setToggleState (expectation.defaultRaw < 0.5f, juce::sendNotificationSync);
-        CHECK (raw->load() == Catch::Approx (expectation.defaultRaw < 0.5f ? 1.0f : 0.0f));
-
-        toggle->setToggleState (expectation.defaultRaw >= 0.5f, juce::sendNotificationSync);
-        CHECK (raw->load() == Catch::Approx (expectation.defaultRaw));
-    }
-}
-
-TEST_CASE ("Each stage is an accessibility focus container that does not trap Tab", "[gui][a11y]")
-{
-    SeraphAudioProcessor processor;
-    processor.prepareToPlay (48000.0, 512);
-    SeraphAudioProcessorEditor editor (processor);
-
-    for (const auto* title : stagePanelTitles)
-    {
-        auto* panel = findDescendantByTitle<basilica::gui::BusPanel> (editor, title);
-        REQUIRE (panel != nullptr);
-        INFO ("stage panel \"" << title << "\"");
-
-        // focusContainer (accessibility grouping: AT reads "De-Ess,
-        // Freq")...
-        CHECK (panel->isFocusContainer());
-
-        // ...but NOT a keyboard focus container: JUCE 8.0.14's Tab
-        // traversal looks up the nearest isKeyboardFocusContainer()
-        // ancestor (juce_Component.cpp:2918), so setting that flag here
-        // would trap Tab inside one stage. setFocusContainerType(focusContainer)
-        // sets only the accessibility-side flag (juce_Component.cpp:2879).
-        CHECK_FALSE (panel->isKeyboardFocusContainer());
-
-        // Reported to AT as a named group.
-        const auto handler = createHandlerForTest (*panel);
-        REQUIRE (handler != nullptr);
-        CHECK (handler->getRole() == juce::AccessibilityRole::group);
-    }
-
-    // Every interactive control lives inside exactly one of the five stage
-    // panels (non-vacuous: the walk must find all 19).
-    int controlsChecked = 0;
-
-    const auto isInsideExactlyOnePanel = [&] (juce::Component& control)
-    {
-        int containingPanels = 0;
-
-        for (auto* ancestor = control.getParentComponent(); ancestor != nullptr; ancestor = ancestor->getParentComponent())
-            if (dynamic_cast<basilica::gui::BusPanel*> (ancestor) != nullptr)
-                ++containingPanels;
-
-        ++controlsChecked;
-        CHECK (containingPanels == 1);
-    };
-
-    visitDescendants<juce::Slider> (editor, [&] (juce::Slider& s) { isInsideExactlyOnePanel (s); });
-    visitDescendants<juce::ToggleButton> (editor, [&] (juce::ToggleButton& t) { isInsideExactlyOnePanel (t); });
-
-    CHECK (controlsChecked == 19);
-}
-
-TEST_CASE ("Needle meters expose a read-only, unit-suffixed accessible value per stage", "[gui][a11y]")
-{
-    SeraphAudioProcessor processor;
-    processor.prepareToPlay (48000.0, 512);
-    SeraphAudioProcessorEditor editor (processor);
-
-    const char* meterTitles[] = { "De-Ess gain reduction meter",
-                                  "Compressor gain reduction meter" };
-
-    int metersSeen = 0;
-
-    for (const auto* title : meterTitles)
-    {
-        auto* meter = findDescendantByTitle<basilica::gui::NeedleMeter> (editor, title);
-        REQUIRE (meter != nullptr);
-        ++metersSeen;
-        INFO ("meter \"" << title << "\"");
-
-        // Display-only: never in the tab order, never eats mouse events
-        // aimed at nearby controls.
-        CHECK_FALSE (meter->getWantsKeyboardFocus());
-
-        const auto handler = meter->createAccessibilityHandler();
-        REQUIRE (handler != nullptr);
-
-        auto* valueInterface = handler->getValueInterface();
-        REQUIRE (valueInterface != nullptr);
-        CHECK (valueInterface->isReadOnly());
-
-        // On-demand value in dB, following the ballistic-smoothed reading.
-        meter->setImmediateDbForPreview (6.4f);
-        CHECK (valueInterface->getCurrentValueAsString() == "6.4 dB");
-    }
-
-    CHECK (metersSeen == 2);
-
-    // ...and there are exactly two (one per exposed GR source), no strays.
-    int totalMeters = 0;
-    visitDescendants<basilica::gui::NeedleMeter> (editor, [&] (basilica::gui::NeedleMeter&) { ++totalMeters; });
-    CHECK (totalMeters == 2);
+    CHECK (fineStep > 0.0);
+    CHECK (fineStep < coarseStep);
 }

@@ -5,40 +5,51 @@
 #include <memory>
 #include <vector>
 
-#include "gui/BasilicaLookAndFeel.h"
-#include "gui/BusPanel.h"
-#include "gui/NeedleMeter.h"
-#include "gui/PointerKnob.h"
+#include "gui/AnalogMeter.h"
+#include "gui/LayoutManifest.h"
+#include "gui/MasterCropKnob.h"
+#include "gui/PlateTypography.h"
+#include "gui/SpriteToggle.h"
 #include "presets/PresetBar.h"
 
 class SeraphAudioProcessor;
 
-// M3 custom vector editor + accessible parameter surface (issue #4), ported
-// from Miserere's merged M3 implementation (basilica-audio/miserere PR #31).
+// Wave-3 COMPOSITIONAL photoreal editor (campaign 2026-08, supersedes the
+// M3 vector editor - BusPanel/PointerKnob/NeedleMeter stay in the tree per
+// the suite's "superseded, not deleted" convention but are no longer
+// used): the accepted EMPTY family plate render
+// (resources/gui/plate_seraph.png) is the sole baked background, and every
+// control is composited live from the extracted control-sprite library at
+// the coordinates in resources/gui/layout_manifest.json (the single source
+// of truth - see gui/LayoutManifest.h). Draw order:
 //
-// Everything is drawn at runtime by BasilicaLookAndFeel / the src/gui
-// components - no photoreal PNG assets exist in this plugin (unlike the
-// filmstrip/faceplate siblings): pointer knobs with engraved scale rings,
-// lamp toggles, and one vector needle meter per gain-reducing stage
-// (De-Esser and Compressor - the two GR sources SeraphAudioProcessor
-// exposes), grouped into one BusPanel per processing stage in signal-flow
-// order (De-Ess / Air / Compressor / Doubler / Output).
+//   1. plate render (paint())
+//   2. static control sprites - knob bodies and the two needle-free VU
+//      dial faces at their manifest positions (paint(), under the
+//      children)
+//   3. engraved lettering - PlateTypography, gilded gold on the dark
+//      basalt (paint(), after the sprites so labels sit on top of each
+//      sprite's feathered basalt patch)
+//   4. rotating cap crops - one MasterCropKnob child per knob, rotating a
+//      feathered circular crop of its own sprite's cap (the suite
+//      INNER-DISC technique: rim + housing stay static underneath)
+//   5. lever toggle - SpriteToggle child (up = ON, mirrored = OFF; see
+//      SpriteToggle.h's asset-gap docs)
+//   6. needle overlays - one AnalogMeter child per VU dial (glow +
+//      master-extracted needle sprite rotated live from the processor's
+//      output-peak atomics; ballistics on the GUI timer, NADEL-REGEL
+//      compliant - never baked, never hand-drawn)
 //
-// FOCUS ORDER CONTRACT (WCAG 2.4.3, suite-wide convention): JUCE's default
-// traverser walks children in z-order, which equals CREATION order - the
-// constructor therefore creates every control in signal-flow/reading order
-// (preset bar first, then panel by panel, left-to-right within each row),
-// and nothing may reorder children afterwards. Each BusPanel is an
-// accessibility focus container (NOT a keyboard focus container - see
-// BusPanel.h), so screen readers hear "De-Ess, Freq" while Tab still walks
-// the whole editor.
+// Seraph-specific control set (rollout-2026-07/seraph/control-inventory.md):
+// 10 continuous knobs in 2 rows of 5 (row 2 staggered), the deEssListen
+// lever, and 2 VU dials reading post-chain stereo L/R output level - the
+// one point in Seraph's chain where left and right genuinely diverge (the
+// doubler's panned voices), so the pair shows real DSP state, not dead
+// decoration.
 //
-// Controls are built data-driven from ID/label tables (see the .cpp) - all
-// float AND choice parameters are PointerKnobs (choice knobs snap to their
-// integer detents and announce the choice NAME - the interim editor's
-// ComboBox choosers are gone), bool parameters are real juce::ToggleButtons
-// (focusable and Space/Enter-operable out of the box, reported as toggle
-// buttons by AT).
+// Window scaling is STEPPED (100/150/200%, UA-style corner control,
+// persisted as a plain property on the APVTS state tree), matching every
+// merged M3 editor in the suite.
 class SeraphAudioProcessorEditor final : public juce::AudioProcessorEditor,
                                          private juce::Timer
 {
@@ -49,72 +60,64 @@ public:
     void paint (juce::Graphics& g) override;
     void resized() override;
 
+    // The parsed layout manifest - exposed read-only so tests assert
+    // layout invariants against the exact data this editor composites
+    // from (tests/gui/EditorLayoutTests.cpp).
+    const basilica::gui::LayoutManifest& layoutManifest() const noexcept { return manifest; }
+
 private:
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
     using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
 
     struct Knob
     {
-        basilica::gui::PointerKnob slider;
-        juce::Label label;
+        const basilica::gui::ManifestControl* entry = nullptr;
+        std::unique_ptr<basilica::gui::MasterCropKnob> slider;
         std::unique_ptr<SliderAttachment> attachment;
     };
 
     struct Toggle
     {
-        juce::ToggleButton button;
+        const basilica::gui::ManifestControl* entry = nullptr;
+        std::unique_ptr<basilica::gui::SpriteToggle> button;
         std::unique_ptr<ButtonAttachment> attachment;
     };
 
-    // One stage faceplate: the BusPanel component plus its control rows
-    // (each row a left-to-right list of the controls laid out in it) and
-    // an optional gain-reduction needle meter in the panel's right bay.
-    struct Panel
+    struct Meter
     {
-        std::unique_ptr<basilica::gui::BusPanel> component;
-        std::vector<std::vector<juce::Component*>> rows;
-        basilica::gui::NeedleMeter* meter = nullptr; // owned via `meters`
+        const basilica::gui::ManifestControl* entry = nullptr;
+        std::unique_ptr<basilica::gui::AnalogMeter> component;
     };
 
-    Panel& addPanel (const juce::String& stageTitle);
-    void addRow (Panel& panel);
-    Knob& addKnob (Panel& panel, const char* parameterId, const juce::String& labelText);
-    Toggle& addToggle (Panel& panel, const char* parameterId, const juce::String& labelText);
-    basilica::gui::NeedleMeter& addMeter (Panel& panel, const juce::String& accessibleTitle,
-                                          const juce::String& faceLegend);
-
+    juce::Image spriteImageFor (const juce::String& spriteKey) const;
+    void buildControlsFromManifest();
+    void applyScaleStep (int newStepIndex);
+    void cycleScale();
+    void drawStaticSprites (juce::Graphics& g) const;
+    void drawPlateLettering (juce::Graphics& g) const;
     void timerCallback() override;
 
-    static int slotWidthFor (const juce::Component& control) noexcept;
-    static int rowWidth (const std::vector<juce::Component*>& row) noexcept;
-    int panelRequiredWidth (const Panel& panel) const noexcept;
-    int panelRequiredHeight (const Panel& panel) const noexcept;
+    // plate-render px -> screen px for the current scale step, and the
+    // plate's top-left corner in screen px.
+    float plateScale() const noexcept;
+    juce::Point<float> plateOrigin() const noexcept;
 
     SeraphAudioProcessor& audioProcessor;
 
-    // Must be constructed before any child that paints with it and
-    // installed on `this` so it propagates to every child (including the
-    // preset bar's stock buttons/menus/dialogs).
-    basilica::gui::BasilicaLookAndFeel lookAndFeel;
+    basilica::gui::LayoutManifest manifest;
 
-    // M2 preset system - constructed after the localisation frame is
-    // installed (see the constructor) so its TRANS()'d strings pick up the
-    // right language from the very first paint.
+    juce::Image plateImage;
+    juce::Image knobSprite, toggleSprite, vuDialSprite, needleSprite;
+
     basilica::presets::PresetBar presetBar;
+    juce::TextButton scaleButton;
+    int scaleStepIndex = 0; // 0 = 100%, 1 = 150%, 2 = 200%
 
-    std::vector<std::unique_ptr<Knob>> knobs;
-    std::vector<std::unique_ptr<Toggle>> toggles;
-    std::vector<std::unique_ptr<basilica::gui::NeedleMeter>> meters;
-    std::vector<std::unique_ptr<Panel>> panels;
+    std::vector<Knob> knobs;
+    std::vector<Toggle> toggles;
+    std::vector<Meter> meters;
 
-    // Signal-flow panels, kept as raw pointers into `panels` for layout:
-    // De-Ess, Doubler and Output stack as full-width bands; Air and
-    // Compressor share one band.
-    Panel* deEssPanel = nullptr;
-    Panel* airPanel = nullptr;
-    Panel* compPanel = nullptr;
-    Panel* doublerPanel = nullptr;
-    Panel* outputPanel = nullptr;
+    basilica::gui::PlateTypography typography;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SeraphAudioProcessorEditor)
 };

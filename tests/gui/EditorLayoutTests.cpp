@@ -1,245 +1,242 @@
 #include "PluginEditor.h"
+#include "PluginEditorLayout.h"
 #include "PluginProcessor.h"
-#include "gui/BusPanel.h"
-#include "gui/NeedleMeter.h"
 
-#include <catch2/catch_approx.hpp>
+#include <BinaryData.h>
+
 #include <catch2/catch_test_macros.hpp>
 
-#include <functional>
+#include <algorithm>
+#include <map>
+#include <set>
 #include <vector>
 
-// M3 vector-editor layout tests (issue #4). Unlike the photoreal siblings
-// (whose EditorLayoutTests assert hand-measured pixel manifests against
-// baked master renders), Seraph's geometry is COMPUTED from the layout
-// constants + control tables in PluginEditor.cpp - so the manifest under
-// test here is the real constructed component tree itself: containment, no
-// overlap, and full parameter coverage. Any arithmetic slip in the layout
-// constants shows up as a concrete clipped/colliding control here.
+// Wave-3 compositional-layout invariants, asserted against the SAME parsed
+// manifest the editor composites from (PluginEditor::layoutManifest() /
+// gui/LayoutManifest.h) - never a second hand-maintained coordinate list.
+// The expected control census comes from the rollout control inventory
+// (.scaffold/gui-assets/rollout-2026-07/seraph/control-inventory.md):
+// 10 knobs (2 rows of 5, row 2 staggered), 1 toggle, 2 VU dial meters,
+// 0 selectors.
 namespace
 {
-    template <typename ComponentType>
-    void visitDescendants (juce::Component& parent, const std::function<void (ComponentType&)>& visit)
+    basilica::gui::LayoutManifest parseManifest()
     {
-        for (int i = 0; i < parent.getNumChildComponents(); ++i)
-        {
-            auto* child = parent.getChildComponent (i);
-
-            if (auto* typed = dynamic_cast<ComponentType*> (child))
-                visit (*typed);
-
-            visitDescendants<ComponentType> (*child, visit);
-        }
+        return basilica::gui::LayoutManifest::parse (BinaryData::layout_manifest_json,
+                                                     BinaryData::layout_manifest_jsonSize);
     }
 
-    juce::Rectangle<int> boundsInEditor (const juce::Component& component, const juce::Component& editor)
+    // The plate's usable control field (inside the gold pinstripe border),
+    // measured on plate_seraph.png - same family plate geometry the
+    // overture wave-3 measurement log established. Slightly conservative
+    // on purpose.
+    constexpr float fieldLeft = 85.0f, fieldRight = 1162.0f;
+    constexpr float fieldTop = 85.0f, fieldBottom = 768.0f;
+
+    // Baked central divider flourish (family plate: y ~448..459,
+    // x ~510..740) - no control cap may cover it.
+    const juce::Rectangle<float> dividerKeepOut (500.0f, 444.0f, 250.0f, 20.0f);
+
+    // Baked amber vent grilles (family plate, measured): no control cap
+    // may intrude into either grille.
+    const juce::Rectangle<float> ventLeftKeepOut (150.0f, 488.0f, 142.0f, 195.0f);
+    const juce::Rectangle<float> ventRightKeepOut (963.0f, 488.0f, 142.0f, 195.0f);
+
+    float capRadiusPlatePx (const basilica::gui::ManifestControl& control)
     {
-        auto bounds = component.getBounds();
+        using namespace srph::layout;
 
-        for (const auto* ancestor = component.getParentComponent();
-             ancestor != nullptr && ancestor != &editor;
-             ancestor = ancestor->getParentComponent())
-        {
-            bounds += ancestor->getPosition();
-        }
+        if (control.kind == "toggle")
+            return 48.0f * control.scale; // housing half-height, conservative
 
-        return bounds;
-    }
-}
+        if (control.kind == "meter")
+            return meterBezelRadiusPlatePx * control.scale;
 
-TEST_CASE ("Every automatable parameter has exactly one attached control", "[gui][layout]")
-{
-    SeraphAudioProcessor processor;
-    processor.prepareToPlay (48000.0, 512);
-    SeraphAudioProcessorEditor editor (processor);
-
-    int sliders = 0, toggles = 0;
-    visitDescendants<juce::Slider> (editor, [&] (juce::Slider&) { ++sliders; });
-    visitDescendants<juce::ToggleButton> (editor, [&] (juce::ToggleButton&) { ++toggles; });
-
-    // The APVTS carries 13 float + 2 choice + 4 bool parameters = 19
-    // (ParameterIds.h). One knob per float/choice parameter, one toggle per
-    // bool parameter - no parameter may be left off the M3 surface, and no
-    // control may exist without a parameter.
-    CHECK ((int) processor.getParameters().size() == 19);
-    CHECK (sliders + toggles == (int) processor.getParameters().size());
-    CHECK (sliders == 15);
-    CHECK (toggles == 4);
-}
-
-TEST_CASE ("Moving a knob moves its parameter - one wiring spot check per stage", "[gui][layout]")
-{
-    SeraphAudioProcessor processor;
-    processor.prepareToPlay (48000.0, 512);
-    SeraphAudioProcessorEditor editor (processor);
-
-    struct Expectation
-    {
-        const char* title;      // unique across the whole editor
-        const char* parameterId;
-        double sliderValue;     // a legal, non-default value
-        float expectedRaw;      // denormalised parameter value afterwards
-    };
-
-    const Expectation expectations[] = {
-        { "Knee", "deEssKnee", 6.0, 6.0f },          // De-Ess
-        { "Air", "air", 3.0, 3.0f },                 // Air
-        { "Comp", "comp", 40.0, 40.0f },             // Compressor
-        { "Humanize", "doubleHumanize", 30.0, 30.0f }, // Doubler
-        { "Mix", "mix", 60.0, 60.0f },               // Output
-    };
-
-    for (const auto& expectation : expectations)
-    {
-        juce::Slider* knob = nullptr;
-        visitDescendants<juce::Slider> (editor, [&] (juce::Slider& s)
-        {
-            if (s.getTitle() == expectation.title)
-                knob = &s;
-        });
-
-        REQUIRE (knob != nullptr);
-        INFO ("knob \"" << expectation.title << "\" -> " << expectation.parameterId);
-
-        auto* raw = processor.apvts.getRawParameterValue (expectation.parameterId);
-        REQUIRE (raw != nullptr);
-
-        knob->setValue (expectation.sliderValue, juce::sendNotificationSync);
-        CHECK (raw->load() == Catch::Approx (expectation.expectedRaw).margin (1.0e-4));
+        return knobCapRadius * control.scale;
     }
 }
 
-TEST_CASE ("All controls, labels and meters stay inside their panel; panels stay inside the editor", "[gui][layout]")
+TEST_CASE ("Manifest parses and matches the rollout control inventory census", "[gui][layout]")
 {
-    SeraphAudioProcessor processor;
-    processor.prepareToPlay (48000.0, 512);
-    SeraphAudioProcessorEditor editor (processor);
+    const auto manifest = parseManifest();
 
-    const auto editorBounds = editor.getLocalBounds();
-    CHECK (editorBounds.getWidth() > 0);
-    CHECK (editorBounds.getHeight() > 0);
+    REQUIRE (manifest.isValid());
+    CHECK (manifest.plateWidthPx == srph::layout::plateCanvasWidthPx);
+    CHECK (manifest.plateHeightPx == srph::layout::plateCanvasHeightPx);
 
-    int panelsSeen = 0;
-
-    visitDescendants<basilica::gui::BusPanel> (editor, [&] (basilica::gui::BusPanel& panel)
-    {
-        ++panelsSeen;
-        INFO ("panel \"" << panel.getTitle().toStdString() << "\" bounds "
-              << panel.getBounds().toString().toStdString());
-        CHECK (editorBounds.contains (panel.getBounds()));
-
-        // Every direct child (knobs incl. their value boxes, attached
-        // labels, toggles, the meter) must be fully inside the panel.
-        for (int i = 0; i < panel.getNumChildComponents(); ++i)
-        {
-            const auto* child = panel.getChildComponent (i);
-            INFO ("child \"" << child->getName().toStdString() << "\" bounds "
-                  << child->getBounds().toString().toStdString()
-                  << " in panel \"" << panel.getTitle().toStdString() << "\" "
-                  << panel.getLocalBounds().toString().toStdString());
-            CHECK (panel.getLocalBounds().contains (child->getBounds()));
-        }
-    });
-
-    CHECK (panelsSeen == 5);
+    CHECK (manifest.ofKind ("knob").size() == 10);
+    CHECK (manifest.ofKind ("selector").empty()); // no choice params surface this generation
+    CHECK (manifest.ofKind ("toggle").size() == 1);
+    CHECK (manifest.ofKind ("meter").size() == 2); // stereo L/R output VU pair
+    CHECK (manifest.controls.size() == 13);
 }
 
-TEST_CASE ("No two interactive controls or meters overlap", "[gui][layout]")
+TEST_CASE ("Every non-meter manifest control id resolves to a real APVTS parameter of the right type", "[gui][layout]")
 {
+    const auto manifest = parseManifest();
+    REQUIRE (manifest.isValid());
+
     SeraphAudioProcessor processor;
-    processor.prepareToPlay (48000.0, 512);
-    SeraphAudioProcessorEditor editor (processor);
 
-    struct Entry
+    for (const auto& control : manifest.controls)
     {
-        juce::String name;
-        juce::Rectangle<int> bounds;
-    };
+        if (control.kind == "meter")
+            continue; // meter ids are editor-defined display elements, not parameters
 
-    std::vector<Entry> entries;
+        auto* parameter = processor.apvts.getParameter (control.id);
+        INFO ("manifest id \"" << control.id.toStdString() << "\"");
+        REQUIRE (parameter != nullptr);
 
-    const auto collect = [&] (juce::Component& component)
-    {
-        entries.push_back ({ component.getTitle(), boundsInEditor (component, editor) });
-    };
-
-    visitDescendants<juce::Slider> (editor, [&] (juce::Slider& s) { collect (s); });
-    visitDescendants<juce::ToggleButton> (editor, [&] (juce::ToggleButton& t) { collect (t); });
-    visitDescendants<basilica::gui::NeedleMeter> (editor, [&] (basilica::gui::NeedleMeter& m) { collect (m); });
-
-    // 15 knobs + 4 toggles + 2 meters - the pairwise scan below must not
-    // pass vacuously on an empty collection.
-    REQUIRE (entries.size() == 21);
-
-    for (size_t i = 0; i < entries.size(); ++i)
-    {
-        for (size_t j = i + 1; j < entries.size(); ++j)
-        {
-            INFO ("\"" << entries[i].name.toStdString() << "\" " << entries[i].bounds.toString().toStdString()
-                  << " vs \"" << entries[j].name.toStdString() << "\" " << entries[j].bounds.toString().toStdString());
-            CHECK_FALSE (entries[i].bounds.intersects (entries[j].bounds));
-        }
+        if (control.kind == "toggle")
+            CHECK (dynamic_cast<juce::AudioParameterBool*> (parameter) != nullptr);
+        else if (control.kind == "knob")
+            CHECK (dynamic_cast<juce::AudioParameterFloat*> (parameter) != nullptr);
     }
 }
 
-TEST_CASE ("Panels do not overlap each other or the preset bar", "[gui][layout]")
+TEST_CASE ("Knob rows follow the 5+5 staggered family signature", "[gui][layout]")
 {
-    SeraphAudioProcessor processor;
-    processor.prepareToPlay (48000.0, 512);
-    SeraphAudioProcessorEditor editor (processor);
+    const auto manifest = parseManifest();
+    REQUIRE (manifest.isValid());
 
-    std::vector<juce::Rectangle<int>> panelBounds;
+    std::map<float, std::vector<float>> rows; // cy -> sorted cx list
 
-    visitDescendants<basilica::gui::BusPanel> (editor, [&] (basilica::gui::BusPanel& panel)
+    for (const auto* knob : manifest.ofKind ("knob"))
+        rows[knob->cy].push_back (knob->cx);
+
+    REQUIRE (rows.size() == 2);
+
+    auto it = rows.begin();
+    auto& row1 = it->second;
+    auto& row2 = std::next (it)->second;
+
+    CHECK (row1.size() == 5);
+    CHECK (row2.size() == 5);
+
+    for (auto* row : { &row1, &row2 })
     {
-        panelBounds.push_back (panel.getBounds());
-    });
+        std::sort (row->begin(), row->end());
 
-    REQUIRE (panelBounds.size() == 5);
+        // Uniform spacing within a row (the LAYOUT-INVARIANTE: same-role
+        // elements share a common axis and even rhythm).
+        for (size_t i = 2; i < row->size(); ++i)
+            CHECK (std::abs (((*row)[i] - (*row)[i - 1]) - ((*row)[1] - (*row)[0])) < 1.0f);
+    }
 
-    for (size_t i = 0; i < panelBounds.size(); ++i)
-        for (size_t j = i + 1; j < panelBounds.size(); ++j)
-            CHECK_FALSE (panelBounds[i].intersects (panelBounds[j]));
+    // Staggered: the second row's grid must not simply reuse the first
+    // row's x positions.
+    std::set<float> row1Xs (row1.begin(), row1.end());
+    int shared = 0;
+    for (const auto x : row2)
+        shared += row1Xs.count (x) > 0 ? 1 : 0;
 
-    // The preset bar band sits above all panels.
-    juce::Component* presetBar = nullptr;
-
-    for (int i = 0; i < editor.getNumChildComponents(); ++i)
-        if (dynamic_cast<basilica::presets::PresetBar*> (editor.getChildComponent (i)) != nullptr)
-            presetBar = editor.getChildComponent (i);
-
-    REQUIRE (presetBar != nullptr);
-
-    for (const auto& bounds : panelBounds)
-        CHECK_FALSE (presetBar->getBounds().intersects (bounds));
+    CHECK (shared < (int) row2.size());
 }
 
-TEST_CASE ("Every knob's visible label text matches its accessible title (label-in-name)", "[gui][layout][a11y]")
+TEST_CASE ("The VU pair sits symmetric about the plate's vertical centre line", "[gui][layout]")
 {
-    SeraphAudioProcessor processor;
-    processor.prepareToPlay (48000.0, 512);
-    SeraphAudioProcessorEditor editor (processor);
+    const auto manifest = parseManifest();
+    REQUIRE (manifest.isValid());
 
-    // WCAG 2.5.3 Label in Name: the label painted next to a knob must be
-    // the same string AT users hear as the control's name - a mismatch
-    // breaks voice-control users ("click Mix" targeting a control whose
-    // accessible name is something else).
-    int labelledKnobs = 0;
+    const auto meters = manifest.ofKind ("meter");
+    REQUIRE (meters.size() == 2);
 
-    visitDescendants<juce::Label> (editor, [&] (juce::Label& label)
+    CHECK (meters[0]->cy == meters[1]->cy);
+    CHECK (meters[0]->scale == meters[1]->scale);
+
+    // Mirror symmetry about x = 632 (the 1264 px plate's centre line).
+    const auto centre = (float) srph::layout::plateCanvasWidthPx * 0.5f;
+    CHECK (std::abs ((centre - meters[0]->cx) - (meters[1]->cx - centre)) < 1.0f);
+}
+
+TEST_CASE ("Every control stays inside the pinstripe field and off the baked plate art", "[gui][layout]")
+{
+    const auto manifest = parseManifest();
+    REQUIRE (manifest.isValid());
+
+    for (const auto& control : manifest.controls)
     {
-        if (auto* attached = label.getAttachedComponent())
+        const auto r = capRadiusPlatePx (control);
+        INFO ("control \"" << control.id.toStdString() << "\"");
+
+        CHECK (control.cx - r >= fieldLeft);
+        CHECK (control.cx + r <= fieldRight);
+        CHECK (control.cy - r >= fieldTop);
+        CHECK (control.cy + r <= fieldBottom);
+
+        const juce::Rectangle<float> capBox (control.cx - r, control.cy - r, 2.0f * r, 2.0f * r);
+        CHECK_FALSE (capBox.intersects (dividerKeepOut));
+
+        // Meters are circular dials in a square box - the box corners may
+        // overhang the rectangular vent keep-outs without the BEZEL doing
+        // so; the circle-accurate check below covers them. Everything else
+        // uses the plain box test.
+        if (control.kind != "meter")
         {
-            if (auto* slider = dynamic_cast<juce::Slider*> (attached))
+            CHECK_FALSE (capBox.intersects (ventLeftKeepOut));
+            CHECK_FALSE (capBox.intersects (ventRightKeepOut));
+        }
+        else
+        {
+            for (const auto& vent : { ventLeftKeepOut, ventRightKeepOut })
             {
-                ++labelledKnobs;
-                INFO ("label \"" << label.getText().toStdString() << "\" for knob \""
-                      << slider->getTitle().toStdString() << "\"");
-                CHECK (label.getText() == slider->getTitle());
+                const auto nearestX = juce::jlimit (vent.getX(), vent.getRight(), control.cx);
+                const auto nearestY = juce::jlimit (vent.getY(), vent.getBottom(), control.cy);
+                const auto dx = control.cx - nearestX;
+                const auto dy = control.cy - nearestY;
+                CHECK (dx * dx + dy * dy >= r * r);
             }
         }
-    });
 
-    // Every one of the 15 knobs carries an attached, matching label.
-    CHECK (labelledKnobs == 15);
+        if (control.labelCy > 0.0f)
+        {
+            using namespace srph::layout;
+            const juce::Rectangle<float> labelBox (control.cx - labelBoxWidthPlatePx * 0.5f,
+                                                   control.labelCy - labelBoxHeightPlatePx * 0.5f,
+                                                   labelBoxWidthPlatePx, labelBoxHeightPlatePx);
+
+            CHECK (labelBox.getY() >= fieldTop);
+            CHECK (labelBox.getBottom() <= fieldBottom);
+
+            // Lettering never intrudes into its own control's rotating cap.
+            CHECK (labelBox.getY() >= control.cy + r - 1.0f);
+        }
+    }
+}
+
+TEST_CASE ("No two composited elements overlap", "[gui][layout]")
+{
+    const auto manifest = parseManifest();
+    REQUIRE (manifest.isValid());
+
+    for (size_t a = 0; a < manifest.controls.size(); ++a)
+    {
+        for (size_t b = a + 1; b < manifest.controls.size(); ++b)
+        {
+            const auto& ca = manifest.controls[a];
+            const auto& cb = manifest.controls[b];
+
+            const auto minGap = capRadiusPlatePx (ca) + capRadiusPlatePx (cb);
+            const auto dx = ca.cx - cb.cx;
+            const auto dy = ca.cy - cb.cy;
+
+            INFO (ca.id.toStdString() << " vs " << cb.id.toStdString());
+            CHECK (dx * dx + dy * dy >= minGap * minGap);
+        }
+    }
+}
+
+TEST_CASE ("Editor base size derives from the plate geometry", "[gui][layout]")
+{
+    using namespace srph::layout;
+
+    SeraphAudioProcessor processor;
+    processor.prepareToPlay (48000.0, 512);
+    SeraphAudioProcessorEditor editor (processor);
+
+    // A fresh processor carries no stored uiScaleStep, so the editor
+    // constructs at the 100% step and its size IS the base geometry.
+    CHECK (editor.getWidth() == baseEditorWidth);
+    CHECK (editor.getHeight() == baseEditorHeight);
+    CHECK (editor.layoutManifest().isValid());
 }

@@ -79,11 +79,23 @@ public:
     float getDeEssGainReductionMeterDb() const noexcept { return deEssGainReductionMeterDb.load (std::memory_order_relaxed); }
     float getCompGainReductionMeterDb() const noexcept { return compGainReductionMeterDb.load (std::memory_order_relaxed); }
 
+    // Wave-3 meter surface: the most recent block's per-channel output
+    // peak (LINEAR gain, post-chain - measured on the buffer processBlock()
+    // hands back to the host), refreshed every processBlock() call. RAW
+    // linear peaks on purpose: the audio thread does two plain relaxed
+    // stores and nothing else - the dB conversion, VU reference alignment
+    // and ballistic smoothing are all GUI-side (see PluginEditor.cpp /
+    // gui/AnalogMeter.h). Mono buses publish the single channel on both.
+    float getOutputPeakLinearL() const noexcept { return outputPeakLinearL.load (std::memory_order_relaxed); }
+    float getOutputPeakLinearR() const noexcept { return outputPeakLinearR.load (std::memory_order_relaxed); }
+
 private:
     SeraphEngine engine;
 
     std::atomic<float> deEssGainReductionMeterDb { 0.0f };
     std::atomic<float> compGainReductionMeterDb { 0.0f };
+    std::atomic<float> outputPeakLinearL { 0.0f };
+    std::atomic<float> outputPeakLinearR { 0.0f };
 
     // Raw atomic pointers into the APVTS-managed parameter values, resolved
     // once at construction time so processBlock() never has to search for
