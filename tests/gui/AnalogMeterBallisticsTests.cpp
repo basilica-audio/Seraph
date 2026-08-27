@@ -1,0 +1,115 @@
+#include "gui/AnalogMeter.h"
+
+#include <catch2/catch_approx.hpp>
+#include <catch2/catch_test_macros.hpp>
+
+#include <cmath>
+
+// AnalogMeter's ballistic integration and dB->tick-angle mapping are pure,
+// static functions (see AnalogMeter.h's docs) precisely so they're testable
+// without a running juce::Timer/message loop.
+TEST_CASE ("AnalogMeter::stepBallistics step response", "[gui]")
+{
+    using basilica::gui::AnalogMeter;
+
+    SECTION ("non-positive dt or tau snaps straight to target (defensive floor, never divides by zero)")
+    {
+        CHECK (AnalogMeter::stepBallistics (-20.0f, 0.0f, 0.0f, 0.3f) == Catch::Approx (0.0f));
+        CHECK (AnalogMeter::stepBallistics (-20.0f, 0.0f, 1.0f / 30.0f, 0.0f) == Catch::Approx (0.0f));
+    }
+
+    SECTION ("one time constant of stepping reaches ~63% of the way to target")
+    {
+        constexpr float tau = 0.3f;
+        constexpr float dt = 1.0f / 30.0f; // 30 Hz, matching AnalogMeter's own timer rate
+        constexpr float start = -20.0f;
+        constexpr float target = 0.0f;
+
+        auto smoothed = start;
+        const auto numSteps = (int) std::lround (tau / dt);
+
+        for (int i = 0; i < numSteps; ++i)
+            smoothed = AnalogMeter::stepBallistics (smoothed, target, dt, tau);
+
+        // Exact analytic value after N discrete steps at dt intervals:
+        // target - (target - start) * (1 - dt/tau)^N is NOT what a
+        // continuous-time one-pole reaches - use the discrete recurrence's
+        // own closed form instead so the test is exact, not just "close".
+        auto expected = start;
+        for (int i = 0; i < numSteps; ++i)
+            expected += (target - expected) * (1.0f - std::exp (-dt / tau));
+
+        CHECK (smoothed == Catch::Approx (expected).margin (1.0e-4f));
+
+        // Sanity bound: a one-pole low-pass never overshoots a step input,
+        // and one full time constant should have covered clearly more than
+        // half (but not all) of the distance to target.
+        const auto fractionCovered = (smoothed - start) / (target - start);
+        CHECK (fractionCovered > 0.5f);
+        CHECK (fractionCovered < 1.0f);
+    }
+
+    SECTION ("repeated stepping monotonically approaches target without overshoot")
+    {
+        constexpr float tau = 0.3f;
+        constexpr float dt = 1.0f / 30.0f;
+        constexpr float target = 3.0f;
+
+        auto smoothed = -100.0f;
+        auto previous = smoothed;
+
+        for (int i = 0; i < 300; ++i)
+        {
+            smoothed = AnalogMeter::stepBallistics (smoothed, target, dt, tau);
+            CHECK (smoothed >= previous);
+            CHECK (smoothed <= target);
+            previous = smoothed;
+        }
+
+        CHECK (smoothed == Catch::Approx (target).margin (0.01f));
+    }
+}
+
+TEST_CASE ("AnalogMeter::tickAngleDegreesForDb interpolates the baked tick table", "[gui]")
+{
+    using basilica::gui::AnalogMeter;
+
+    // Exact table points
+    // (.scaffold/gui-assets/faceplate-silentium-v3/faceplate-metadata.json's
+    // dB_angle_table_deg, measured directly on master-03-raw.png and copied
+    // into AnalogMeter.cpp - see that file's "_provenance" notes. NOT
+    // interchangeable with the earlier vu-nano-v1 asset's table - this
+    // master render's arc sits at measurably different angles).
+    CHECK (AnalogMeter::tickAngleDegreesForDb (-20.0f) == Catch::Approx (-26.80f));
+    CHECK (AnalogMeter::tickAngleDegreesForDb (0.0f) == Catch::Approx (18.02f));
+    CHECK (AnalogMeter::tickAngleDegreesForDb (3.0f) == Catch::Approx (40.39f));
+
+    SECTION ("midpoint between two adjacent ticks interpolates linearly")
+    {
+        // -10 -> -15.40deg, -7 -> -6.29deg; -8.5 is exactly halfway.
+        CHECK (AnalogMeter::tickAngleDegreesForDb (-8.5f) == Catch::Approx (-10.845f));
+    }
+
+    SECTION ("values beyond the table clamp to the nearest end, never extrapolate")
+    {
+        CHECK (AnalogMeter::tickAngleDegreesForDb (-60.0f) == Catch::Approx (-26.80f));
+        CHECK (AnalogMeter::tickAngleDegreesForDb (12.0f) == Catch::Approx (40.39f));
+    }
+
+    SECTION ("idle-rest fix: any target at/below -20dB clamps to the exact same resting angle")
+    {
+        // The GUI sign-off requirement ("both VU needles must rest exactly
+        // on the -20 tick at idle") is really a statement about this clamp:
+        // PluginProcessor's idle-floor default (-100dB, see PluginProcessor.h)
+        // and AnalogMeter's own construction-time default (targetDb/
+        // smoothedDb = -100.0f) both need to land on IDENTICAL geometry to
+        // the -20 tick itself, not merely "close" - this asserts that
+        // equivalence directly rather than trusting two independently
+        // re-typed -26.80f literals to stay in sync.
+        const auto restAngle = AnalogMeter::tickAngleDegreesForDb (-20.0f);
+
+        CHECK (AnalogMeter::tickAngleDegreesForDb (-100.0f) == Catch::Approx (restAngle));
+        CHECK (AnalogMeter::tickAngleDegreesForDb (-60.0f) == Catch::Approx (restAngle));
+        CHECK (AnalogMeter::tickAngleDegreesForDb (-20.0f) == Catch::Approx (restAngle));
+    }
+}

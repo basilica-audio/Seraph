@@ -1,0 +1,135 @@
+{
+ "comment": "Wave-3 compositional GUI layout for Seraph (rollout-2026-07). Coordinates are plate-render pixels on the 1264x848 wave-2 empty family plate (plate_seraph.png). Anchor semantics per sprite family: knob = brass cap centre, toggle = housing centre, meter = dial sprite canvas centre (see src/PluginEditorLayout.h). Control set per rollout-2026-07/seraph/control-inventory.md: 10 knobs (2 rows of 5, row 2 staggered), 1 toggle, 2 VU dials (post-chain stereo L/R output level - the one point where Seraph's channels diverge). Judgment call vs the inventory: deEssListen sits TOP-CENTRE between the dials (the family's silentium plate fills that void with its rose emblem; bottom-centre is occupied by row-2 lettering at this control density), functionally adjacent to the de-ess row it solos.",
+ "plate": {
+  "asset": "plate_seraph_png",
+  "widthPx": 1264,
+  "heightPx": 848
+ },
+ "controls": [
+  {
+   "id": "vuLeft",
+   "kind": "meter",
+   "sprite": "vu_dial",
+   "label": "",
+   "cx": 306,
+   "cy": 287
+  },
+  {
+   "id": "vuRight",
+   "kind": "meter",
+   "sprite": "vu_dial",
+   "label": "",
+   "cx": 958,
+   "cy": 287
+  },
+  {
+   "id": "deEssListen",
+   "kind": "toggle",
+   "sprite": "toggle_up",
+   "label": "LISTEN",
+   "cx": 632,
+   "cy": 255,
+   "labelCy": 345
+  },
+  {
+   "id": "deEss",
+   "kind": "knob",
+   "sprite": "knob_brass",
+   "label": "DE-ESS",
+   "cx": 400,
+   "cy": 545,
+   "scale": 0.85,
+   "labelCy": 601
+  },
+  {
+   "id": "deEssFreq",
+   "kind": "knob",
+   "sprite": "knob_brass",
+   "label": "FREQ",
+   "cx": 520,
+   "cy": 545,
+   "scale": 0.85,
+   "labelCy": 601
+  },
+  {
+   "id": "deEssWidth",
+   "kind": "knob",
+   "sprite": "knob_brass",
+   "label": "WIDTH",
+   "cx": 640,
+   "cy": 545,
+   "scale": 0.85,
+   "labelCy": 601
+  },
+  {
+   "id": "air",
+   "kind": "knob",
+   "sprite": "knob_brass",
+   "label": "AIR",
+   "cx": 760,
+   "cy": 545,
+   "scale": 0.85,
+   "labelCy": 601
+  },
+  {
+   "id": "comp",
+   "kind": "knob",
+   "sprite": "knob_brass",
+   "label": "COMP",
+   "cx": 880,
+   "cy": 545,
+   "scale": 0.85,
+   "labelCy": 601
+  },
+  {
+   "id": "double",
+   "kind": "knob",
+   "sprite": "knob_brass",
+   "label": "DOUBLE",
+   "cx": 430,
+   "cy": 655,
+   "scale": 0.85,
+   "labelCy": 711
+  },
+  {
+   "id": "doubleDetune",
+   "kind": "knob",
+   "sprite": "knob_brass",
+   "label": "DETUNE",
+   "cx": 550,
+   "cy": 655,
+   "scale": 0.85,
+   "labelCy": 711
+  },
+  {
+   "id": "doubleWidth",
+   "kind": "knob",
+   "sprite": "knob_brass",
+   "label": "SPREAD",
+   "cx": 670,
+   "cy": 655,
+   "scale": 0.85,
+   "labelCy": 711
+  },
+  {
+   "id": "output",
+   "kind": "knob",
+   "sprite": "knob_brass",
+   "label": "OUTPUT",
+   "cx": 790,
+   "cy": 655,
+   "scale": 0.85,
+   "labelCy": 711
+  },
+  {
+   "id": "mix",
+   "kind": "knob",
+   "sprite": "knob_brass",
+   "label": "MIX",
+   "cx": 910,
+   "cy": 655,
+   "scale": 0.85,
+   "labelCy": 711
+  }
+ ]
+}

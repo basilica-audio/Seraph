@@ -1,350 +1,391 @@
 #include "PluginEditor.h"
+#include "PluginEditorLayout.h"
 #include "PluginProcessor.h"
-#include "params/ParameterIds.h"
 #include "presets/Localisation.h"
 
 #include <BinaryData.h>
 
-#include <algorithm>
+#include <cmath>
 
 namespace
 {
-    // ----- M3 vector-editor layout metrics (issue #4) ---------------------
-    // All values are design constants, not measurements of pre-rendered
-    // art (there is none): the editor computes its own size from these plus
-    // the control tables in the constructor, and tests/gui/EditorLayoutTests.cpp
-    // asserts the resulting geometry (containment, no overlap) on the real
-    // component tree, so a change here can never silently clip a control.
-    constexpr int outerMargin = 10;
-    constexpr int presetBarHeight = 30;
-    constexpr int bandGap = 8;
+    using namespace srph::layout;
 
-    constexpr int panelPadding = 10;
-    constexpr int panelBottomPadding = 8;
-    constexpr int rowGap = 8;
-
-    // A knob slot: attached label above (JUCE 8.0.14 Label::
-    // componentMovedOrResized sizes an above-attached label to
-    // borderTopAndBottom + 6 + fontHeight ~ 22 px for the 14 px suite
-    // serif, so 24 reserved keeps it clear of the row above), then the
-    // rotary area, then the value box baked into the slider's own bounds.
-    constexpr int labelHeight = 24;
-    constexpr int knobSize = 60;
-    constexpr int textBoxHeight = 16;
-    constexpr int knobSlotWidth = 80;
-    constexpr int toggleSlotWidth = 70;
-    constexpr int toggleHeight = 32;
-    constexpr int slotGap = 6; // trimmed off the right of every slot
-    constexpr int rowHeight = labelHeight + knobSize + textBoxHeight;
-
-    // Right-hand meter bay on the two gain-reducing panels.
-    constexpr int meterBayWidth = 150;
-    constexpr int meterWidth = 134;
-    constexpr int meterHeight = 96;
+    juce::Image loadImage (const char* data, int size)
+    {
+        return juce::ImageCache::getFromMemory (data, size);
+    }
 
     // M2 i18n frame: selects German (resources/i18n/de.txt) or falls
     // through to English, once, at editor construction - see
-    // Localisation.h's docs. `presetBar` is a member initialised via the
-    // constructor's initialiser list, and its own constructor already calls
-    // TRANS() on every button label - member initialisers run in
-    // declaration order, so this helper (called from presetBar's own
-    // initialiser expression below) is what guarantees installLocalisation()
-    // runs before presetBar exists, not a call in the constructor *body*,
-    // which would run too late.
+    // Localisation.h's docs. Called from presetBar's own initialiser
+    // expression so installLocalisation() is guaranteed to run before
+    // PresetBar's constructor TRANS()es its button labels.
     basilica::presets::PresetManager& initLocalisationThenGetPresetManager (SeraphAudioProcessor& processor)
     {
         basilica::presets::installLocalisation (BinaryData::de_txt, BinaryData::de_txtSize);
         return processor.presetManager;
+    }
+
+    // Non-parameter, per-session UI state: the stepped scale choice (0/1/2)
+    // stored as a plain property directly on apvts.state.
+    constexpr const char* uiScaleStepProperty = "uiScaleStep";
+
+    // Engraved lettering: gilded antique gold with a dark drop shadow one
+    // scaled pixel below - the correct read for light-on-dark lettering on
+    // the near-black basalt plate (the same gilded convention the family's
+    // typography pass established for dark grounds).
+    const basilica::gui::EngravedTextStyle plateLabelStyle {
+        juce::Colour (0xf0d6ad5e), juce::Colour (0x8c000000), 13.0f, 0.16f, true
+    };
+
+    struct SpriteGeometry
+    {
+        juce::Point<float> anchor;
+        float capRadius; // 0 = not a rotating-cap sprite
+        float minAngleDeg, maxAngleDeg;
+    };
+
+    SpriteGeometry geometryForKind (const juce::String& kind)
+    {
+        if (kind == "toggle")
+            return { { toggleAnchorX, toggleAnchorY }, 0.0f, 0.0f, 0.0f };
+
+        if (kind == "meter")
+            return { { meterAnchorX, meterAnchorY }, 0.0f, 0.0f, 0.0f };
+
+        return { { knobAnchorX, knobAnchorY }, knobCapRadius,
+                 -knobSweepDeg * 0.5f, knobSweepDeg * 0.5f };
+    }
+
+    // GUI-side conversion of the processor's raw linear output peaks to
+    // the dial's VU scale (see srph::layout::vuReferenceLevelDbfs).
+    float vuDbFromLinearPeak (float linearPeak) noexcept
+    {
+        const auto dbfs = juce::Decibels::gainToDecibels (linearPeak, -120.0f);
+        return dbfs - vuReferenceLevelDbfs;
     }
 }
 
 SeraphAudioProcessorEditor::SeraphAudioProcessorEditor (SeraphAudioProcessor& processorToEdit)
     : juce::AudioProcessorEditor (&processorToEdit),
       audioProcessor (processorToEdit),
-      presetBar (initLocalisationThenGetPresetManager (processorToEdit))
+      manifest (basilica::gui::LayoutManifest::parse (BinaryData::layout_manifest_json,
+                                                      BinaryData::layout_manifest_jsonSize)),
+      presetBar (initLocalisationThenGetPresetManager (processorToEdit)),
+      typography (BinaryData::EBGaramondRegular_ttf, BinaryData::EBGaramondRegular_ttfSize,
+                  BinaryData::EBGaramondSemiBold_ttf, BinaryData::EBGaramondSemiBold_ttfSize)
 {
-    // Propagates to every child, including the preset bar's stock buttons
-    // and any menus/dialogs they open.
-    setLookAndFeel (&lookAndFeel);
+    // A structurally broken manifest must fail loudly in development and
+    // degrade to a plate-only editor in production, never crash.
+    jassert (manifest.isValid());
 
-    // FOCUS ORDER (WCAG 2.4.3): children are created and added in signal-
-    // flow/reading order - preset bar, then De-Ess, Air, Compressor,
-    // Doubler, Output, left-to-right within each row. JUCE's default
-    // traverser follows this creation order; do not reorder.
+    plateImage = loadImage (BinaryData::plate_seraph_png, BinaryData::plate_seraph_pngSize);
+    knobSprite = loadImage (BinaryData::sprite_knob_brass_png, BinaryData::sprite_knob_brass_pngSize);
+    toggleSprite = loadImage (BinaryData::sprite_toggle_up_png, BinaryData::sprite_toggle_up_pngSize);
+    vuDialSprite = loadImage (BinaryData::sprite_vu_dial_png, BinaryData::sprite_vu_dial_pngSize);
+    needleSprite = loadImage (BinaryData::sprite_needle_master05_png, BinaryData::sprite_needle_master05_pngSize);
+
+    // Creation order doubles as the keyboard focus order (JUCE's default
+    // FocusTraverser walks children in z-order = creation order): preset
+    // bar + scale control first, then every manifest control in the
+    // manifest's own reading order (the two dials are display-only and
+    // never take focus - see AnalogMeter's constructor).
     addAndMakeVisible (presetBar);
 
-    // --- De-Ess: sibilance control, first in the chain --------------------
-    auto& deEss = addPanel ("De-Ess");
-    deEssPanel = &deEss;
-    addKnob (deEss, ParamIDs::deEss, "De-Ess");
-    addKnob (deEss, ParamIDs::deEssFreq, "Freq");
-    addKnob (deEss, ParamIDs::deEssWidth, "Width");
-    addKnob (deEss, ParamIDs::deEssKnee, "Knee");
-    addKnob (deEss, ParamIDs::deEssLookahead, "Lookahead");
+    scaleButton.setComponentID ("scaleButton");
+    scaleButton.onClick = [this] { cycleScale(); };
+    addAndMakeVisible (scaleButton);
 
-    addRow (deEss);
-    addToggle (deEss, ParamIDs::deEssListen, "Listen");
-    addToggle (deEss, ParamIDs::deEssLink, "Link");
-
-    addMeter (deEss, "De-Ess gain reduction meter", "ESS");
-
-    // --- Air: the high-shelf openness stage -------------------------------
-    auto& air = addPanel ("Air");
-    airPanel = &air;
-    addKnob (air, ParamIDs::air, "Air");
-    addKnob (air, ParamIDs::airFreq, "Shelf");
-
-    // --- Compressor: gentle broadband glue --------------------------------
-    auto& comp = addPanel ("Compressor");
-    compPanel = &comp;
-    addKnob (comp, ParamIDs::comp, "Comp");
-    addToggle (comp, ParamIDs::compLink, "Link");
-
-    addMeter (comp, "Compressor gain reduction meter", "COMP");
-
-    // --- Doubler: the four-voice detune/spread stage ----------------------
-    auto& doubler = addPanel ("Doubler");
-    doublerPanel = &doubler;
-    addKnob (doubler, ParamIDs::doubleMode, "Mode");
-    addKnob (doubler, ParamIDs::doubleAmount, "Amount");
-    addKnob (doubler, ParamIDs::doubleDetune, "Detune");
-    addKnob (doubler, ParamIDs::doubleWidth, "Width");
-    addKnob (doubler, ParamIDs::doubleHumanize, "Humanize");
-    addToggle (doubler, ParamIDs::doubleFormant, "Formant");
-
-    // --- Output: dry/wet mix + trim ---------------------------------------
-    auto& output = addPanel ("Output");
-    outputPanel = &output;
-    addKnob (output, ParamIDs::mix, "Mix");
-    addKnob (output, ParamIDs::output, "Output");
-
-    // --- Size: computed from the control tables above ---------------------
-    const auto contentWidth = std::max ({ panelRequiredWidth (deEss),
-                                          panelRequiredWidth (air) + bandGap + panelRequiredWidth (comp),
-                                          panelRequiredWidth (doubler),
-                                          panelRequiredWidth (output) });
-
-    const auto contentHeight = presetBarHeight + bandGap
-                             + panelRequiredHeight (deEss) + bandGap
-                             + std::max (panelRequiredHeight (air), panelRequiredHeight (comp)) + bandGap
-                             + panelRequiredHeight (doubler) + bandGap
-                             + panelRequiredHeight (output);
+    buildControlsFromManifest();
 
     setResizable (false, false);
-    setSize (outerMargin * 2 + contentWidth, outerMargin * 2 + contentHeight);
 
-    // GR meter polling: ~30 Hz GUI-thread timer feeding the ballistic
-    // needles; the processor getters are relaxed-atomic loads, so this
-    // never touches the audio thread.
+    const auto storedStep = (int) audioProcessor.apvts.state.getProperty (uiScaleStepProperty, 0);
+    applyScaleStep (juce::jlimit (0, (int) scaleSteps.size() - 1, storedStep));
+
+    // 30 Hz pump of the processor's output-peak atomics into the meters'
+    // own targets (their spring ballistics run on their own timers).
     startTimerHz (30);
 }
 
 SeraphAudioProcessorEditor::~SeraphAudioProcessorEditor()
 {
     stopTimer();
-    setLookAndFeel (nullptr);
-}
-
-SeraphAudioProcessorEditor::Panel& SeraphAudioProcessorEditor::addPanel (const juce::String& stageTitle)
-{
-    auto panel = std::make_unique<Panel>();
-    panel->component = std::make_unique<basilica::gui::BusPanel> (stageTitle);
-    panel->rows.emplace_back();
-
-    addAndMakeVisible (*panel->component);
-
-    panels.push_back (std::move (panel));
-    return *panels.back();
-}
-
-void SeraphAudioProcessorEditor::addRow (Panel& panel)
-{
-    panel.rows.emplace_back();
-}
-
-SeraphAudioProcessorEditor::Knob& SeraphAudioProcessorEditor::addKnob (Panel& panel, const char* parameterId,
-                                                                       const juce::String& labelText)
-{
-    auto knob = std::make_unique<Knob>();
-
-    knob->slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, knobSlotWidth - slotGap, textBoxHeight);
-    knob->slider.setTitle (labelText);
-    knob->slider.setName (labelText);
-    panel.component->addAndMakeVisible (knob->slider);
-
-    knob->label.setText (labelText, juce::dontSendNotification);
-    knob->label.setJustificationType (juce::Justification::centred);
-    knob->label.attachToComponent (&knob->slider, false); // above; auto-repositions with the slider
-    panel.component->addAndMakeVisible (knob->label);
-
-    // SliderAttachment MUST be constructed before the textFromValueFunction
-    // override below, not after: JUCE 8.0.14's SliderParameterAttachment
-    // constructor (juce_ParameterAttachments.cpp:128) itself assigns
-    // `slider.textFromValueFunction` as part of wiring the attachment -
-    // setting our own function BEFORE this point would be silently
-    // clobbered the moment the attachment is created.
-    knob->attachment = std::make_unique<SliderAttachment> (audioProcessor.apvts, parameterId, knob->slider);
-
-    if (auto* param = audioProcessor.apvts.getParameter (parameterId))
-    {
-        // A-02 pattern: unit-carrying parameters declare their unit via
-        // .withLabel() in ParameterLayout.cpp (%/Hz/dB/ms/cents) - feed it
-        // into both the value box and the accessibility value string.
-        // Choice parameters have an empty label and getText() already
-        // returns the choice NAME, so this is a no-op suffix for them.
-        knob->slider.textFromValueFunction = [param] (double v)
-        {
-            const auto text = param->getText (param->convertTo0to1 ((float) v), 0);
-            const auto unit = param->getLabel();
-            return unit.isEmpty() ? text : text + " " + unit;
-        };
-        knob->slider.updateText();
-    }
-
-    panel.rows.back().push_back (&knob->slider);
-    knobs.push_back (std::move (knob));
-    return *knobs.back();
-}
-
-SeraphAudioProcessorEditor::Toggle& SeraphAudioProcessorEditor::addToggle (Panel& panel, const char* parameterId,
-                                                                           const juce::String& labelText)
-{
-    auto toggle = std::make_unique<Toggle>();
-
-    // Real juce::ToggleButton on purpose: focusable and Space/Enter-
-    // operable by default, and its createAccessibilityHandler() reports
-    // AccessibilityRole::toggleButton (JUCE 8.0.14 juce_ToggleButton.cpp:71)
-    // so it lands in the VoiceOver rotor as a toggle, not a plain button.
-    toggle->button.setButtonText (labelText);
-    toggle->button.setTitle (labelText);
-    toggle->button.setName (labelText);
-    panel.component->addAndMakeVisible (toggle->button);
-
-    toggle->attachment = std::make_unique<ButtonAttachment> (audioProcessor.apvts, parameterId, toggle->button);
-
-    panel.rows.back().push_back (&toggle->button);
-    toggles.push_back (std::move (toggle));
-    return *toggles.back();
-}
-
-basilica::gui::NeedleMeter& SeraphAudioProcessorEditor::addMeter (Panel& panel, const juce::String& accessibleTitle,
-                                                                  const juce::String& faceLegend)
-{
-    auto meter = std::make_unique<basilica::gui::NeedleMeter> (accessibleTitle, faceLegend);
-    panel.component->addAndMakeVisible (*meter);
-    panel.meter = meter.get();
-
-    meters.push_back (std::move (meter));
-    return *meters.back();
 }
 
 void SeraphAudioProcessorEditor::timerCallback()
 {
-    // Positive dB of gain reduction, straight from the engine's per-block
-    // metering (relaxed atomic reads - see PluginProcessor.h).
-    if (deEssPanel != nullptr && deEssPanel->meter != nullptr)
-        deEssPanel->meter->setTargetDb (audioProcessor.getDeEssGainReductionMeterDb());
-
-    if (compPanel != nullptr && compPanel->meter != nullptr)
-        compPanel->meter->setTargetDb (audioProcessor.getCompGainReductionMeterDb());
-
-    constexpr float dtSeconds = 1.0f / 30.0f;
-
     for (auto& meter : meters)
-        meter->tick (dtSeconds);
+    {
+        const auto isLeft = meter.entry->id == "vuLeft";
+        const auto peak = isLeft ? audioProcessor.getOutputPeakLinearL()
+                                 : audioProcessor.getOutputPeakLinearR();
+        meter.component->setTargetDb (vuDbFromLinearPeak (peak));
+    }
 }
 
-int SeraphAudioProcessorEditor::slotWidthFor (const juce::Component& control) noexcept
+juce::Image SeraphAudioProcessorEditor::spriteImageFor (const juce::String& spriteKey) const
 {
-    return dynamic_cast<const juce::Slider*> (&control) != nullptr ? knobSlotWidth : toggleSlotWidth;
+    if (spriteKey == "toggle_up")
+        return toggleSprite;
+
+    if (spriteKey == "vu_dial")
+        return vuDialSprite;
+
+    return knobSprite;
 }
 
-int SeraphAudioProcessorEditor::rowWidth (const std::vector<juce::Component*>& row) noexcept
+void SeraphAudioProcessorEditor::buildControlsFromManifest()
 {
-    int width = 0;
+    for (const auto& entry : manifest.controls)
+    {
+        if (entry.kind == "meter")
+        {
+            Meter meter;
+            meter.entry = &entry;
 
-    for (const auto* control : row)
-        width += slotWidthFor (*control);
+            basilica::gui::AnalogMeter::Assets assets;
+            assets.needle = needleSprite;
 
-    return width;
+            const auto title = entry.id == "vuLeft" ? "Output Level Left meter"
+                                                    : "Output Level Right meter";
+            const auto flickerSeed = entry.id == "vuLeft" ? 0.0f : 1.0f;
+
+            meter.component = std::make_unique<basilica::gui::AnalogMeter> (
+                std::move (assets), title, flickerSeed, meterPivotXFraction, meterPivotYFraction);
+
+            addAndMakeVisible (*meter.component);
+            meters.push_back (std::move (meter));
+            continue;
+        }
+
+        auto* parameter = audioProcessor.apvts.getParameter (entry.id);
+        jassert (parameter != nullptr); // manifest out of sync with ParameterLayout.cpp
+        if (parameter == nullptr)
+            continue;
+
+        const auto title = parameter->getName (64);
+        const auto geometry = geometryForKind (entry.kind);
+
+        if (entry.kind == "toggle")
+        {
+            Toggle toggle;
+            toggle.entry = &entry;
+            toggle.button = std::make_unique<basilica::gui::SpriteToggle> (
+                spriteImageFor (entry.sprite), geometry.anchor, title);
+            addAndMakeVisible (*toggle.button);
+            toggle.attachment = std::make_unique<ButtonAttachment> (audioProcessor.apvts, entry.id, *toggle.button);
+            toggles.push_back (std::move (toggle));
+            continue;
+        }
+
+        Knob knob;
+        knob.entry = &entry;
+        knob.slider = std::make_unique<basilica::gui::MasterCropKnob> (
+            spriteImageFor (entry.sprite), geometry.anchor, geometry.capRadius, 0.94f,
+            geometry.minAngleDeg, geometry.maxAngleDeg);
+
+        knob.slider->setPopupDisplayEnabled (true, true, this);
+        knob.slider->setTitle (title);
+        knob.slider->setName (title);
+        addAndMakeVisible (*knob.slider);
+
+        const auto defaultValue = parameter->getNormalisableRange().convertFrom0to1 (parameter->getDefaultValue());
+        knob.slider->setDoubleClickReturnValue (true, defaultValue);
+
+        // SliderAttachment MUST be constructed before the
+        // textFromValueFunction override below - JUCE 8.0.14's
+        // SliderParameterAttachment constructor itself assigns
+        // slider.textFromValueFunction as part of wiring the attachment,
+        // which would silently clobber an override set beforehand.
+        knob.attachment = std::make_unique<SliderAttachment> (audioProcessor.apvts, entry.id, *knob.slider);
+
+        knob.slider->textFromValueFunction = [parameter] (double v)
+        {
+            auto text = parameter->getText (parameter->convertTo0to1 ((float) v), 0);
+            const auto label = parameter->getLabel();
+            return label.isNotEmpty() ? text + " " + label : text;
+        };
+        knob.slider->updateText();
+
+        knobs.push_back (std::move (knob));
+    }
 }
 
-int SeraphAudioProcessorEditor::panelRequiredWidth (const Panel& panel) const noexcept
+void SeraphAudioProcessorEditor::cycleScale()
 {
-    int widest = 0;
-
-    for (const auto& row : panel.rows)
-        widest = std::max (widest, rowWidth (row));
-
-    return panelPadding * 2 + widest + (panel.meter != nullptr ? meterBayWidth : 0);
+    applyScaleStep ((scaleStepIndex + 1) % (int) scaleSteps.size());
 }
 
-int SeraphAudioProcessorEditor::panelRequiredHeight (const Panel& panel) const noexcept
+void SeraphAudioProcessorEditor::applyScaleStep (int newStepIndex)
 {
-    const auto numRows = (int) panel.rows.size();
-    return basilica::gui::BusPanel::headerHeight
-         + numRows * rowHeight + (numRows - 1) * rowGap
-         + panelBottomPadding;
+    scaleStepIndex = juce::jlimit (0, (int) scaleSteps.size() - 1, newStepIndex);
+    audioProcessor.apvts.state.setProperty (uiScaleStepProperty, scaleStepIndex, nullptr);
+
+    const auto percentText = juce::String ((int) (scaleSteps[(size_t) scaleStepIndex] * 100.0f)) + "%";
+    scaleButton.setButtonText (percentText);
+    scaleButton.setTitle ("Window scale, " + percentText);
+
+    const auto scale = scaleSteps[(size_t) scaleStepIndex];
+
+    setSize ((int) std::lround ((float) baseEditorWidth * scale),
+             (int) std::lround ((float) baseEditorHeight * scale));
+}
+
+float SeraphAudioProcessorEditor::plateScale() const noexcept
+{
+    return plateToUnit * scaleSteps[(size_t) scaleStepIndex];
+}
+
+juce::Point<float> SeraphAudioProcessorEditor::plateOrigin() const noexcept
+{
+    const auto scale = scaleSteps[(size_t) scaleStepIndex];
+    return { 0.0f, (float) (topStripHeight1x + topStripGap1x) * scale };
 }
 
 void SeraphAudioProcessorEditor::paint (juce::Graphics& g)
 {
-    g.fillAll (basilica::gui::BasilicaLookAndFeel::getEditorBackgroundColour());
+    g.fillAll (juce::Colours::black);
+
+    const auto scale = scaleSteps[(size_t) scaleStepIndex];
+
+    // Top chrome strip behind the preset bar + scale button.
+    const auto stripHeight = (float) topStripHeight1x * scale;
+    g.setGradientFill (juce::ColourGradient (juce::Colour (0xff17141a), 0.0f, 0.0f,
+                                             juce::Colour (0xff0b090d), 0.0f, stripHeight, false));
+    g.fillRect (juce::Rectangle<float> (0.0f, 0.0f, (float) getWidth(), stripHeight));
+    g.setColour (juce::Colour (0xff5a4420));
+    g.fillRect (juce::Rectangle<float> (0.0f, stripHeight - 1.0f * scale, (float) getWidth(), 1.0f * scale));
+
+    g.setImageResamplingQuality (juce::Graphics::highResamplingQuality);
+
+    // 1. The empty family plate.
+    if (plateImage.isValid())
+    {
+        const auto origin = plateOrigin();
+        g.drawImage (plateImage,
+                     juce::Rectangle<float> (origin.x, origin.y,
+                                             (float) plateWidth1x * scale, (float) plateHeight1x * scale),
+                     juce::RectanglePlacement::stretchToFit, false);
+    }
+
+    // 2. Static control sprites (knob bodies + the two needle-free VU dial
+    // faces - the rotating caps are MasterCropKnob children and the
+    // needles are AnalogMeter children, both drawn after this method
+    // returns; the toggle draws its own sprite entirely, see
+    // SpriteToggle.h).
+    drawStaticSprites (g);
+
+    // 3. Engraved lettering - after the sprites so each label sits on top
+    // of its control's feathered basalt patch, still under all children.
+    drawPlateLettering (g);
+}
+
+void SeraphAudioProcessorEditor::drawStaticSprites (juce::Graphics& g) const
+{
+    const auto k = plateScale();
+    const auto origin = plateOrigin();
+
+    for (const auto& entry : manifest.controls)
+    {
+        if (entry.kind == "toggle")
+            continue; // SpriteToggle children own their full visual
+
+        const auto sprite = spriteImageFor (entry.sprite);
+        if (! sprite.isValid())
+            continue;
+
+        const auto geometry = geometryForKind (entry.kind);
+        const auto drawScale = entry.scale * k;
+
+        const auto transform = juce::AffineTransform::scale (drawScale)
+                                   .translated (origin.x + (entry.cx - geometry.anchor.x * entry.scale) * k,
+                                                origin.y + (entry.cy - geometry.anchor.y * entry.scale) * k);
+
+        g.drawImageTransformed (sprite, transform);
+    }
+}
+
+void SeraphAudioProcessorEditor::drawPlateLettering (juce::Graphics& g) const
+{
+    const auto k = plateScale();
+    const auto origin = plateOrigin();
+    const auto uiScale = scaleSteps[(size_t) scaleStepIndex];
+
+    for (const auto& entry : manifest.controls)
+    {
+        if (entry.label.isEmpty() || entry.labelCy <= 0.0f)
+            continue;
+
+        const juce::Rectangle<float> box (origin.x + (entry.cx - labelBoxWidthPlatePx * 0.5f) * k,
+                                          origin.y + (entry.labelCy - labelBoxHeightPlatePx * 0.5f) * k,
+                                          labelBoxWidthPlatePx * k,
+                                          labelBoxHeightPlatePx * k);
+
+        typography.drawEngraved (g, entry.label, box, uiScale, plateLabelStyle);
+    }
 }
 
 void SeraphAudioProcessorEditor::resized()
 {
-    auto bounds = getLocalBounds().reduced (outerMargin);
+    const auto uiScale = scaleSteps[(size_t) scaleStepIndex];
+    const auto s = [uiScale] (int v) { return (int) std::lround ((float) v * uiScale); };
 
-    presetBar.setBounds (bounds.removeFromTop (presetBarHeight));
-    bounds.removeFromTop (bandGap);
+    auto bounds = getLocalBounds();
+    auto topStrip = bounds.removeFromTop (s (topStripHeight1x));
 
-    const auto layoutPanel = [] (Panel& panel, juce::Rectangle<int> area)
+    scaleButton.setBounds (topStrip.removeFromRight (s (scaleButtonWidth1x)).reduced (0, s (2)));
+    presetBar.setBounds (topStrip.reduced (0, s (2)));
+
+    const auto k = plateScale();
+    const auto origin = plateOrigin();
+
+    for (const auto& knob : knobs)
     {
-        panel.component->setBounds (area);
+        const auto& entry = *knob.entry;
+        const auto geometry = geometryForKind (entry.kind);
 
-        auto content = panel.component->getLocalBounds().reduced (panelPadding, 0);
-        content.removeFromTop (basilica::gui::BusPanel::headerHeight);
+        // Bounds sized to EXACTLY the crop canvas at the sprite's drawn
+        // scale, so the rotating cap registers pixel-true on the static
+        // sprite underneath (see MasterCropKnob::cropCanvasSizeFor()).
+        const auto side = (float) basilica::gui::MasterCropKnob::cropCanvasSizeFor (geometry.capRadius)
+                           * entry.scale * k;
 
-        if (panel.meter != nullptr)
-        {
-            auto bay = content.removeFromRight (meterBayWidth);
-            panel.meter->setBounds (juce::Rectangle<int> (meterWidth,
-                                                          juce::jmin (meterHeight, bay.getHeight()))
-                                        .withCentre (bay.getCentre()));
-        }
+        knob.slider->setBounds (juce::Rectangle<float> (side, side)
+                                    .withCentre ({ origin.x + entry.cx * k, origin.y + entry.cy * k })
+                                    .getSmallestIntegerContainer());
+    }
 
-        for (auto& row : panel.rows)
-        {
-            auto rowArea = content.removeFromTop (rowHeight);
-            rowArea.removeFromTop (labelHeight); // attached labels position themselves here
+    for (const auto& toggle : toggles)
+    {
+        const auto& entry = *toggle.entry;
+        const auto geometry = geometryForKind (entry.kind);
+        const auto sprite = spriteImageFor (entry.sprite);
+        if (! sprite.isValid())
+            continue;
 
-            for (auto* control : row)
-            {
-                auto slot = rowArea.removeFromLeft (slotWidthFor (*control)).withTrimmedRight (slotGap);
+        const auto w = (float) sprite.getWidth() * entry.scale * k;
+        const auto h = (float) sprite.getHeight() * entry.scale * k;
+        const auto x = origin.x + (entry.cx - geometry.anchor.x * entry.scale) * k;
+        const auto y = origin.y + (entry.cy - geometry.anchor.y * entry.scale) * k;
 
-                if (dynamic_cast<juce::Slider*> (control) != nullptr)
-                    control->setBounds (slot.withHeight (knobSize + textBoxHeight));
-                else
-                    control->setBounds (slot.withSizeKeepingCentre (slot.getWidth(), toggleHeight)
-                                            .withY (rowArea.getY() + (knobSize - toggleHeight) / 2));
-            }
+        toggle.button->setBounds (juce::Rectangle<float> (x, y, w, h).getSmallestIntegerContainer());
+    }
 
-            content.removeFromTop (rowGap);
-        }
-    };
+    for (const auto& meter : meters)
+    {
+        const auto& entry = *meter.entry;
 
-    layoutPanel (*deEssPanel, bounds.removeFromTop (panelRequiredHeight (*deEssPanel)));
-    bounds.removeFromTop (bandGap);
+        // Bounds = EXACTLY the dial sprite's footprint at its drawn scale,
+        // so AnalogMeter's pivot fractions (measured in sprite space, see
+        // srph::layout::meterPivot*Fraction) land the needle on the baked
+        // hub, and its needleSizeFraction reproduces master-render scale
+        // parity (see AnalogMeter.h).
+        const auto side = meterSpriteSizePx * entry.scale * k;
 
-    auto midBand = bounds.removeFromTop (std::max (panelRequiredHeight (*airPanel),
-                                                   panelRequiredHeight (*compPanel)));
-    layoutPanel (*airPanel, midBand.removeFromLeft (panelRequiredWidth (*airPanel)));
-    midBand.removeFromLeft (bandGap);
-    layoutPanel (*compPanel, midBand);
-
-    bounds.removeFromTop (bandGap);
-    layoutPanel (*doublerPanel, bounds.removeFromTop (panelRequiredHeight (*doublerPanel)));
-    bounds.removeFromTop (bandGap);
-    layoutPanel (*outputPanel, bounds.removeFromTop (panelRequiredHeight (*outputPanel)));
+        meter.component->setBounds (juce::Rectangle<float> (side, side)
+                                        .withCentre ({ origin.x + entry.cx * k, origin.y + entry.cy * k })
+                                        .getSmallestIntegerContainer());
+    }
 }
