@@ -1,6 +1,6 @@
 # Factory presets
 
-Twelve factory presets ship with Seraph v0.3.0, embedded via BinaryData from
+Twelve factory presets ship with Seraph, embedded via BinaryData from
 `presets/factory/*.json` (see sibling plugin nave's
 `docs/preset-system-notes.md` for the build wiring - Seraph follows the same
 M2 preset system, `.scaffold/specs/preset-system-m2.md`). Eight of the nine

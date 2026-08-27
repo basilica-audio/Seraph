@@ -84,6 +84,10 @@ juce_add_plugin(Seraph
     PLUGIN_CODE Srph
     FORMATS AU VST3 Standalone
     PRODUCT_NAME "Seraph"
+    COMPANY_WEBSITE "https://basilica-audio.github.io/website/"
+    COMPANY_COPYRIGHT "Copyright (c) 2026 Yves Vogl"
+    DESCRIPTION "Choir and vocal processor: air, de-essing and doubling"
+    VST3_CATEGORIES Fx Dynamics Modulation
     ICON_BIG "docs/assets/icon.png"
     COPY_PLUGIN_AFTER_BUILD TRUE
     IS_SYNTH FALSE
