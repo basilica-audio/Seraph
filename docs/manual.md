@@ -46,7 +46,7 @@ See [`architecture.md`](architecture.md) for the full technical signal-flow diag
 
 ## Presets
 
-Seraph ships with a preset bar docked at the top of the plugin window: browse Factory and User presets from the name menu, step through them with the `<`/`>` arrows, and use Save/Save As.../Delete/Import.../Export... to manage your own. Twelve factory presets cover lead, choir, spoken-interlude, and single-stage utility use cases - see [`presets.md`](presets.md) for the full list and each preset's intent. "Set current as default" (in the preset name menu) sets what loads the next time you open a fresh instance of Seraph. User presets are stored per-user (`~/Library/Audio/Presets/Yves Vogl/Seraph/` on macOS) and can be exported/imported as single files or shared as a bank.
+Seraph ships with a preset bar docked at the top of the plugin window: browse Factory and User presets from the name menu, step through them with the `<`/`>` arrows, and use Save/Save As.../Delete/Import.../Export... to manage your own. Twelve factory presets cover lead, choir, spoken-interlude, and single-stage utility use cases - see [`presets.md`](presets.md) for the full list and each preset's intent. "Set current as default" (in the preset name menu) sets what loads the next time you open a fresh instance of Seraph. User presets are stored per-user (`~/Library/Audio/Presets/Basilica Audio/Seraph/` on macOS) and can be exported/imported as single files or shared as a bank.
 
 ## Parameter reference
 
