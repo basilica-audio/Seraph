@@ -191,7 +191,12 @@ TEST_CASE ("The STFT window is specified in seconds, so it survives a sample-rat
                      << "96 kHz: " << at96k.getLatencySamples() << " samples (" << milliseconds96 << " ms)");
 
     CHECK (at96k.getLatencySamples() > at48k.getLatencySamples());
-    CHECK (milliseconds96 == Catch::Approx (milliseconds48).margin (2.0));
+    // The only inexactness is the window's quantisation to whole samples:
+    // end-to-end latency is lround (0.03 * fs) samples (the STFT's analysis
+    // and synthesis offsets sum to exactly blockSamples), so each rate's
+    // millisecond figure is off by at most 1000 * 0.5 / fs from 30 ms.
+    // Bound: 1000 * (0.5 / 48000 + 0.5 / 96000) = 0.015625 ms.
+    CHECK (milliseconds96 == Catch::Approx (milliseconds48).margin (0.016));
 }
 
 TEST_CASE ("A click arrives exactly where the reported latency says it will", "[latency][doubler][shift]")
